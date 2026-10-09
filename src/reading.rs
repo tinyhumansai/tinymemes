@@ -13,7 +13,7 @@ use tinyinference_decisions::{
 use crate::conversation::{Turn, Window, jev_state};
 use crate::error::{BoxError, Error, Result};
 use crate::intent::Intent;
-use crate::region::SlangTerm;
+use crate::region::{CatalogMeme, SlangTerm};
 
 const CHAT_INTENT: &str = "chat_intent";
 const REPLY_INTENT: &str = "reply_intent";
@@ -23,6 +23,19 @@ const SERIOUS: &str = "serious";
 const SLANG_BEST: &str = "slang_best";
 const SLANG_ENOUGH: &str = "slang_enough";
 const USER_LANGUAGE: &str = "user_language";
+const MEME_BEST: &str = "meme_best";
+
+/// Jev's meme decision for this reply.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemePick {
+    /// No catalog was offered, or Jev did not answer.
+    Unasked,
+    /// Jev judged that no offered meme fits.
+    NoneFit,
+    /// The title of the catalog meme Jev picked.
+    Pick(String),
+}
 
 /// The language and script the user writes in, as Jev judged it. The rewrite
 /// mirrors it, and the slang offered follows it.
@@ -131,6 +144,8 @@ pub struct Reading {
     pub slang_enough: Option<f64>,
     /// The user's language and script. `None` when Jev did not answer.
     pub user_language: Option<UserLanguage>,
+    /// Which catalog meme (if any) fits this reply.
+    pub meme: MemePick,
 }
 
 impl Reading {
@@ -158,6 +173,7 @@ pub fn reading_request(
     reply: &str,
     region: &str,
     slang: &[SlangTerm],
+    memes: &[CatalogMeme],
     window: Window,
     openjev: bool,
 ) -> EvaluationRequest {
@@ -223,6 +239,26 @@ pub fn reading_request(
                 .collect(),
         }),
     );
+    if !memes.is_empty() {
+        let mut criteria: BTreeMap<String, Option<serde_json::Value>> = memes
+            .iter()
+            .map(|m| (m.title.clone(), Some(json!(m.meaning))))
+            .collect();
+        criteria.insert(
+            NONE_FIT.to_owned(),
+            Some(json!("no meme here fits the moment of this reply")),
+        );
+        questions.insert(
+            MEME_BEST.to_owned(),
+            Question::Choice(Choice {
+                instructions: json!(
+                    "Which reaction meme, by its meaning, fits the moment of `assistant_reply` best? \
+                     Choose none_fit unless one clearly matches."
+                ),
+                criteria,
+            }),
+        );
+    }
     let mut state = jev_state(conversation, reply, region, window);
     if slang.len() >= 2 {
         let mut criteria: BTreeMap<String, Option<serde_json::Value>> = slang
@@ -301,6 +337,11 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
             _ => None,
         },
         slang_enough: noul(SLANG_ENOUGH).ok(),
+        meme: match response.answers.get(MEME_BEST) {
+            Some(Answer::Choice(c)) if c.choice == NONE_FIT => MemePick::NoneFit,
+            Some(Answer::Choice(c)) => MemePick::Pick(c.choice.clone()),
+            _ => MemePick::Unasked,
+        },
         user_language: match response.answers.get(USER_LANGUAGE) {
             Some(Answer::Choice(c)) => UserLanguage::ALL
                 .into_iter()
@@ -311,16 +352,18 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
 }
 
 /// Read a chat with Jev.
+#[allow(clippy::too_many_arguments)]
 pub async fn read(
     jev: &dyn Evaluator,
     conversation: &[Turn],
     reply: &str,
     region: &str,
     slang: &[SlangTerm],
+    memes: &[CatalogMeme],
     window: Window,
     openjev: bool,
 ) -> Result<Reading> {
-    let request = reading_request(conversation, reply, region, slang, window, openjev);
+    let request = reading_request(conversation, reply, region, slang, memes, window, openjev);
     let response = jev.evaluate(&request).await.map_err(Error::Reading)?;
     parse_reading(&response)
 }

@@ -42,6 +42,7 @@ async fn llm_answers_drive_a_full_reading() {
         "Congrats!",
         "India",
         &slang(),
+        &[],
         Window::default(),
         false,
     );
@@ -60,6 +61,7 @@ fn invalid_answers_are_dropped_not_invented() {
         "hello",
         "India",
         &slang(),
+        &[],
         Window::default(),
         false,
     );
@@ -91,6 +93,7 @@ fn tolerant_shapes_are_accepted() {
         "hello",
         "India",
         &slang(),
+        &[],
         Window::default(),
         false,
     );

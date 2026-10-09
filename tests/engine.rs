@@ -20,6 +20,7 @@ struct ScriptedJev {
     slang_enough: Mutex<Vec<f64>>,
     slang_best: &'static str,
     language: Option<&'static str>,
+    meme: Option<&'static str>,
     seen: Mutex<Option<EvaluationRequest>>,
 }
 
@@ -69,6 +70,9 @@ impl Evaluator for ScriptedJev {
                         .insert(id.clone(), Answer::Noul(NoulAnswer { noul: p }));
                 }
             }
+            if let (Some(meme), true) = (self.meme, request.questions.contains_key("meme_best")) {
+                resp.answers.insert("meme_best".into(), choice(meme));
+            }
             if let Some(lang) = self.language {
                 resp.answers.insert("user_language".into(), choice(lang));
             }
@@ -110,6 +114,7 @@ fn jev_slang(
         slang_enough: Mutex::new(enough.to_vec()),
         slang_best: best,
         language: None,
+        meme: None,
         seen: Mutex::new(None),
     })
 }
@@ -210,13 +215,14 @@ async fn frank_chat_gets_slang_and_memes() {
     assert_eq!(rating.tier, Tier::Unhinged);
     assert!(out.skipped.is_none(), "{:?}", out.skipped);
     let remix = out.remix.unwrap();
-    assert_eq!(remix.queries, ["lets go", "success kid"]);
+    // No planning LLM call: external sources are searched by the reply intent.
+    assert_eq!(remix.queries, ["lets go", "celebration"]);
     assert!(remix.rewrite_kept);
     assert_eq!(remix.memes.len(), 1);
-    assert_eq!(remix.memes[0].url, "https://memes.example/success-kid.gif");
+    assert_eq!(remix.memes[0].url, "https://memes.example/celebration.gif");
     assert!(
         out.reply
-            .contains("![success kid meme](https://memes.example/success-kid.gif)")
+            .contains("![celebration meme](https://memes.example/celebration.gif)")
     );
     assert!(out.reply.starts_with("W release fr"));
 
@@ -660,4 +666,61 @@ async fn english_writer_gets_english_slang_and_an_english_only_rule() {
     let users = model.users.lock().unwrap();
     let user = users.iter().find(|u| u.contains("Original reply")).unwrap();
     assert!(!user.contains("chill maar"), "no Hinglish best-fit hint");
+}
+
+fn jev_meme(intent: &'static str, meme: &'static str) -> Arc<ScriptedJev> {
+    Arc::new(ScriptedJev {
+        meme: Some(meme),
+        ..Arc::try_unwrap(jev(0.9, 0.9, 0.0, intent)).ok().unwrap()
+    })
+}
+
+#[tokio::test]
+async fn jev_picks_the_catalog_meme_and_no_planning_call_is_made() {
+    let model = spy("arre bhai 😅\n[[meme:1]]");
+    let jev = jev_meme("frustration", "Moye Moye");
+    let engine = MemeEngine::builder(jev.clone(), model.clone()).build();
+    let out = engine
+        .process(
+            &[Turn::user("bhai build phir fail 😭")],
+            "The build failed again.",
+        )
+        .await;
+    let remix = out.remix.unwrap();
+    assert_eq!(remix.queries, ["jev:Moye Moye"]);
+    assert_eq!(remix.memes.len(), 1);
+    assert_eq!(remix.memes[0].title, "Moye Moye");
+    // One LLM call (the rewrite); meme choice came from Jev.
+    assert_eq!(model.systems.lock().unwrap().len(), 1);
+    // Jev was offered the catalog with meanings plus none_fit.
+    let req = jev.seen.lock().unwrap().clone().unwrap();
+    let q = serde_json::to_string(&req.questions["meme_best"]).unwrap();
+    assert!(q.contains("Moye Moye") && q.contains("none_fit") && q.contains("plans fall apart"));
+}
+
+#[tokio::test]
+async fn jev_none_fit_means_no_meme() {
+    let model = spy("arre bhai [[meme:1]]");
+    let engine = MemeEngine::builder(jev_meme("banter", "none_fit"), model.clone()).build();
+    let out = engine.process(&chat(), "Fair point.").await;
+    let remix = out.remix.unwrap();
+    assert!(remix.memes.is_empty());
+    assert!(!out.reply.contains("!["));
+    assert_eq!(model.systems.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn recently_sent_memes_are_not_offered_to_jev() {
+    let jev = jev_meme("banter", "none_fit");
+    let engine = MemeEngine::builder(jev.clone(), model("lol")).build();
+    let history = vec![
+        Turn::user("lol"),
+        Turn::remixed("haha\n\n![Moye Moye](https://i.imgflip.com/82yaur.png)"),
+        Turn::user("sahi"),
+    ];
+    engine.process(&history, "Glad you liked it.").await;
+    let req = jev.seen.lock().unwrap().clone().unwrap();
+    let q = serde_json::to_string(&req.questions["meme_best"]).unwrap();
+    assert!(!q.contains("Moye Moye"));
+    assert!(q.contains("Mast Plan Hai"));
 }

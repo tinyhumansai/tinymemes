@@ -246,12 +246,30 @@ impl MemeEngine {
     pub async fn rate(&self, conversation: &[Turn], reply: &str) -> Result<(Reading, Rating)> {
         let index = self.agent.index();
         let candidates = index.top_terms(&self.agent.region().code, index.policy().jev_candidates);
+        // Jev picks the meme from the catalog, minus memes sent recently.
+        let recently_sent: Vec<String> = conversation
+            .iter()
+            .rev()
+            .filter(|t| t.role == Role::Assistant)
+            .take(6)
+            .flat_map(|t| memes_as_text(&t.text).1)
+            .map(|m| m.title.to_lowercase())
+            .collect();
+        let memes: Vec<CatalogMeme> = self
+            .agent
+            .region()
+            .memes
+            .iter()
+            .filter(|m| !recently_sent.contains(&m.title.to_lowercase()))
+            .cloned()
+            .collect();
         let reading = reading::read(
             self.jev.as_ref(),
             conversation,
             reply,
             &self.agent.region().name,
             &candidates,
+            &memes,
             self.window,
             self.openjev,
         )

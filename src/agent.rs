@@ -5,18 +5,17 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::future::join_all;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::conversation::{Role, Turn, memes_as_text};
 use crate::error::{Error, Result};
 use crate::model::ChatModel;
 use crate::rating::Rating;
-use crate::reading::{Reading, UserLanguage};
+use crate::reading::{MemePick, Reading, UserLanguage};
 use crate::region::{Region, SlangTerm};
 use crate::slang::SlangIndex;
 use crate::source::{Meme, MemeSource};
 
-const MAX_QUERIES: usize = 3;
 const PER_SEARCH: usize = 3;
 const MAX_CANDIDATES: usize = 8;
 /// Recent assistant replies shown to the rewrite so it varies its voice.
@@ -127,21 +126,42 @@ impl SlangAgent {
             .collect();
 
         let has_sources = !self.sources.is_empty() || !self.region.memes.is_empty();
-        let (queries, candidates) = if rating.max_memes > 0 && has_sources {
-            let queries = self.plan(reply, reading).await;
-            let candidates: Vec<Meme> = self
-                .fetch(&queries, reading)
-                .await
-                .into_iter()
-                .filter(|m| {
-                    !sent.iter().any(|s| {
-                        s.title.eq_ignore_ascii_case(&m.title) || s.url.as_deref() == Some(&m.url)
-                    })
-                })
-                .collect();
-            (queries, candidates)
-        } else {
+        // Memes: Jev already chose from the region catalog in the reading call.
+        // With no catalog (or no answer), search external sources by intent.
+        // There is no LLM call for this step.
+        let not_sent = |m: &Meme| {
+            !sent
+                .iter()
+                .any(|s| s.title.eq_ignore_ascii_case(&m.title) || s.url.as_deref() == Some(&m.url))
+        };
+        let (queries, candidates): (Vec<String>, Vec<Meme>) = if rating.max_memes == 0 {
             (Vec::new(), Vec::new())
+        } else {
+            match &reading.meme {
+                MemePick::Pick(title) => {
+                    let picked = self.region.memes.iter().find(|m| &m.title == title);
+                    (
+                        vec![format!("jev:{title}")],
+                        picked
+                            .map(|m| m.to_meme())
+                            .into_iter()
+                            .filter(not_sent)
+                            .collect(),
+                    )
+                }
+                MemePick::NoneFit => (vec!["jev:none_fit".to_owned()], Vec::new()),
+                MemePick::Unasked if has_sources => {
+                    let queries: Vec<String> = reading
+                        .reply_intent
+                        .fallback_queries()
+                        .iter()
+                        .map(|q| (*q).to_owned())
+                        .collect();
+                    let found = self.fetch(&queries, reading).await;
+                    (queries, found.into_iter().filter(not_sent).collect())
+                }
+                MemePick::Unasked => (Vec::new(), Vec::new()),
+            }
         };
 
         // Slang follows the user's language: the regional index for Hinglish or
@@ -199,58 +219,6 @@ impl SlangAgent {
             slang_used,
             rewrite_kept,
         })
-    }
-
-    /// Ask the model for short meme searches; fall back to intent defaults.
-    async fn plan(&self, reply: &str, reading: &Reading) -> Vec<String> {
-        #[derive(Deserialize)]
-        struct Plan {
-            queries: Vec<String>,
-        }
-        let mut system = format!(
-            "You pick meme searches for an audience in {name}. Reply with JSON only: \
-             {{\"queries\": [\"...\"]}}. Give 1-3 short (1-4 word) searches for reaction memes \
-             or GIFs that match the mood of the reply. Draw on {culture}",
-            name = self.region.name,
-            culture = self.region.culture,
-        );
-        if !self.region.memes.is_empty() {
-            system.push_str(
-                "\nMemes people here know (use their names as searches when one fits):\n",
-            );
-            for m in &self.region.memes {
-                system.push_str(&format!("- {}: {}\n", m.title, m.meaning));
-            }
-        }
-        let user = format!(
-            "Reply intent: {}\nChat intent: {}\n\nReply:\n{}",
-            reading.reply_intent, reading.chat_intent, reply
-        );
-        let planned = match self.model.complete(&system, &user).await {
-            Ok(text) => json_object(&text)
-                .and_then(|j| serde_json::from_str::<Plan>(j).ok())
-                .map(|p| p.queries)
-                .unwrap_or_default(),
-            Err(e) => {
-                tracing::debug!(error = %e, "[tinymemes] plan call failed; using intent defaults");
-                Vec::new()
-            }
-        };
-        let mut queries: Vec<String> = planned
-            .into_iter()
-            .map(|q| q.trim().to_owned())
-            .filter(|q| !q.is_empty() && q.len() <= 60)
-            .take(MAX_QUERIES)
-            .collect();
-        if queries.is_empty() {
-            queries = reading
-                .reply_intent
-                .fallback_queries()
-                .iter()
-                .map(|q| (*q).to_owned())
-                .collect();
-        }
-        queries
     }
 
     /// Search the region catalog, then every external source for every query
