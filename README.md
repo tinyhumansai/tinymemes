@@ -150,10 +150,8 @@ Neither learner runs on the reply's path. Both persist as JSON snapshots.
   4. **Jev**, p ≥ 0.75: a widely recognised meme from the region's internet culture
      with that meaning, and not political, religious, sexual, violent, mocking a
      community, or satire of a real politician, journalist or public figure.
-- **Review:** survivors are **pending** by default. A person approves them
-  (`MemeIndex::approve`) or rejects them (`remove`). `auto_approve` lets
-  survivors go live directly.
-- **Use:** approved GIFs join the catalog Jev picks from, minus memes sent in the
+- **Use:** there's no approval step; the filters are the gate. GIFs that pass
+  join the catalog Jev picks from, minus memes sent in the
   last 6 replies. Usage is tracked.
 - **Limits:** the same query isn't repeated within 3 days; 20 searches per region
   per day; concurrent steps for the same query collapse into one.
@@ -177,7 +175,7 @@ can extend them.
 - **Serious chats stay serious.** The `serious` question gates everything.
 - **Code and links survive.** See [Rewrite](#rewrite).
 - **No unvetted media.** Only the curated catalog, or learned GIFs that passed
-  every check and, by default, a person's approval.
+  every check.
 
 ## Use
 
@@ -249,7 +247,6 @@ OpenHuman vendors this repo at `vendor/tinymemes`, with a host adapter in
 | `OPENHUMAN_TINYMEMES_DEFAULT` | set during `cargo build` to bake a default into a release |
 | `OPENHUMAN_TINYMEMES_TIMEOUT_MS` | remix budget (default 20000); the original is sent on timeout |
 | `OPENHUMAN_TINYMEMES_MEME_COOLDOWN` | replies between memes (default 3) |
-| `OPENHUMAN_TINYMEMES_MEME_REVIEW` | `0` auto-approves learned GIFs (default: pending until approved) |
 
 Treatment threads don't stream answer text, so users only ever see the remixed
 reply. Each turn logs one line:
@@ -276,6 +273,6 @@ tinyinference-decisions = { path = "vendor/tinyagents/vendor/tinyinference/crate
 | `rating.rs` | `RatingPolicy`, tiers |
 | `agent.rs` | meme-only vs rewrite, prompts, protected-content checks, duplicate repair, meme markers |
 | `slang.rs`, `research.rs` | `SlangIndex`, slang researchers |
-| `meme_index.rs`, `meme_research.rs` | `MemeIndex` (vetting, review), `GiphyPageResearcher` |
+| `meme_index.rs`, `meme_research.rs` | `MemeIndex` (vetting), `GiphyPageResearcher` |
 | `region.rs`, `intent.rs`, `conversation.rs` | region packs, intents, delivered history |
 | `llm_eval.rs`, `env.rs`, `model.rs`, `source.rs` | LLM-as-Jev, env config, chat model, meme sources |

@@ -15,8 +15,8 @@
 //! 4. **Jev**: verifies it is a widely recognised reaction GIF with that
 //!    meaning and is not political, religious, sexual, violent, or mocking.
 //!
-//! Survivors are held as pending until a person approves them (the default),
-//! or approved automatically when the policy allows it.
+//! Survivors join the catalog Jev picks from. There is no approval step: the
+//! filters are the gate.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, RwLock};
@@ -33,16 +33,6 @@ use crate::reading::Evaluator;
 use crate::region::{CatalogMeme, Region, tokens};
 use crate::slang::unix_now;
 use crate::source::Meme;
-
-/// Review state of a learned meme.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MemeStatus {
-    /// Jev may pick it.
-    Approved,
-    /// Waiting for a person to approve it.
-    Pending,
-}
 
 /// One learned GIF.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -65,8 +55,6 @@ pub struct LearnedMeme {
     pub rating: String,
     /// Jev's verification probability.
     pub verified: f64,
-    /// Review state.
-    pub status: MemeStatus,
     /// Times it went out in a reply.
     pub used: u32,
     /// Unix seconds.
@@ -106,10 +94,8 @@ pub struct MemeLearnReport {
     pub query: String,
     /// GIF pages read successfully.
     pub found: usize,
-    /// Added as approved.
-    pub approved: usize,
-    /// Added as pending review.
-    pub pending: usize,
+    /// Added to the catalog.
+    pub added: usize,
     /// Rejected by the host rating.
     pub rejected_rating: usize,
     /// Rejected by the topic filter.
@@ -129,8 +115,6 @@ pub struct MemeIndexPolicy {
     pub max_searches_per_day: usize,
     /// Minimum Jev verification probability.
     pub min_verified: f64,
-    /// Approve vetted memes automatically; otherwise hold them as pending.
-    pub auto_approve: bool,
     /// Most learned memes offered to Jev per reply.
     pub offer: usize,
 }
@@ -141,7 +125,6 @@ impl Default for MemeIndexPolicy {
             refresh_after_secs: 3 * 24 * 3600,
             max_searches_per_day: 20,
             min_verified: 0.75,
-            auto_approve: false,
             offer: 30,
         }
     }
@@ -192,14 +175,11 @@ impl MemeIndex {
         self.policy
     }
 
-    /// Approved learned memes for a region, most used first, capped.
-    pub fn approved(&self, region: &str) -> Vec<CatalogMeme> {
+    /// Learned memes for a region, most used first, capped.
+    pub fn catalog(&self, region: &str) -> Vec<CatalogMeme> {
         let data = self.data.read().unwrap();
-        let mut memes: Vec<&LearnedMeme> = data
-            .memes
-            .iter()
-            .filter(|m| m.region == region && m.status == MemeStatus::Approved)
-            .collect();
+        let mut memes: Vec<&LearnedMeme> =
+            data.memes.iter().filter(|m| m.region == region).collect();
         memes.sort_by_key(|m| std::cmp::Reverse((m.used, m.added_at)));
         memes
             .into_iter()
@@ -208,34 +188,7 @@ impl MemeIndex {
             .collect()
     }
 
-    /// Learned memes waiting for review.
-    pub fn pending(&self, region: &str) -> Vec<LearnedMeme> {
-        let data = self.data.read().unwrap();
-        data.memes
-            .iter()
-            .filter(|m| m.region == region && m.status == MemeStatus::Pending)
-            .cloned()
-            .collect()
-    }
-
-    /// Approve a pending meme by title. Returns whether one was approved.
-    pub fn approve(&self, region: &str, title: &str) -> bool {
-        let mut data = self.data.write().unwrap();
-        match data
-            .memes
-            .iter_mut()
-            .find(|m| m.region == region && m.title == title)
-        {
-            Some(m) => {
-                m.status = MemeStatus::Approved;
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Remove a learned meme by title (rejecting a pending one, or retiring
-    /// an approved one). Returns whether one was removed.
+    /// Remove a learned meme by title. Returns whether one was removed.
     pub fn remove(&self, region: &str, title: &str) -> bool {
         let mut data = self.data.write().unwrap();
         let before = data.memes.len();
@@ -244,12 +197,12 @@ impl MemeIndex {
         data.memes.len() != before
     }
 
-    /// An approved learned meme by title, as a sendable [`Meme`].
-    pub fn find_approved(&self, region: &str, title: &str) -> Option<Meme> {
+    /// A learned meme by title, as a sendable [`Meme`].
+    pub fn find(&self, region: &str, title: &str) -> Option<Meme> {
         let data = self.data.read().unwrap();
         data.memes
             .iter()
-            .find(|m| m.region == region && m.title == title && m.status == MemeStatus::Approved)
+            .find(|m| m.region == region && m.title == title)
             .map(|m| Meme {
                 title: m.title.clone(),
                 url: m.url.clone(),
@@ -344,7 +297,7 @@ impl MemeIndex {
             intent,
             query,
             at: now,
-            added: report.approved + report.pending,
+            added: report.added,
         });
         tracing::debug!(?report, "[tinymemes] meme research absorbed");
         Ok(Some(report))
@@ -413,15 +366,7 @@ impl MemeIndex {
                 report.failed_verification += 1;
                 continue;
             }
-            let status = if self.policy.auto_approve {
-                MemeStatus::Approved
-            } else {
-                MemeStatus::Pending
-            };
-            match status {
-                MemeStatus::Approved => report.approved += 1,
-                MemeStatus::Pending => report.pending += 1,
-            }
+            report.added += 1;
             let title = unique_title(&data.memes, region, &d.name);
             data.memes.push(LearnedMeme {
                 region: region.code.clone(),
@@ -433,7 +378,6 @@ impl MemeIndex {
                 tags: d.found.tags,
                 rating: d.found.rating.unwrap_or_default(),
                 verified: score,
-                status,
                 used: 0,
                 added_at: now,
             });

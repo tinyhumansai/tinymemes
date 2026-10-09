@@ -75,7 +75,6 @@ impl Evaluator for Jev {
 async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
     let region = Region::india();
     let index = MemeIndex::new(MemeIndexPolicy {
-        auto_approve: true,
         min_verified: 0.6,
         ..MemeIndexPolicy::default()
     });
@@ -115,13 +114,13 @@ async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
     assert_eq!(report.rejected_topic, 1);
     assert_eq!(report.duplicates, 1);
     assert_eq!(report.failed_verification, 1);
-    assert_eq!(report.approved, 1);
+    assert_eq!(report.added, 1);
 
-    let approved = index.approved("IN");
+    let approved = index.catalog("IN");
     assert_eq!(approved.len(), 1);
     assert_eq!(approved[0].title, "Chup Ho Ja Satvi");
     assert!(approved[0].url.ends_with("/200.webp"));
-    assert!(index.find_approved("IN", "Chup Ho Ja Satvi").is_some());
+    assert!(index.find("IN", "Chup Ho Ja Satvi").is_some());
 
     // Same query again: skipped until the refresh window passes.
     let again = index
@@ -139,36 +138,16 @@ async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
     assert_eq!(*researcher.1.lock().unwrap(), 1);
 }
 
-#[tokio::test]
-async fn review_mode_holds_new_gifs_until_approved() {
-    let region = Region::india();
-    // Review is the default.
-    let index = MemeIndex::new(MemeIndexPolicy {
-        min_verified: 0.6,
-        ..MemeIndexPolicy::default()
-    });
-    let researcher = Found(
-        vec![gif("tmkoc-jethalal-chup-ho-ja-satvi-fail", "g", &["tmkoc"])],
-        StdMutex::new(0),
-    );
-    let report = index
-        .learn(
-            &researcher,
-            &Describer,
-            (&Jev, false),
-            &region,
-            Intent::Banter,
-            "mummy said Sharma ji ka beta got 98 lol",
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!((report.approved, report.pending), (0, 1));
-    assert!(index.approved("IN").is_empty());
-    assert_eq!(index.pending("IN").len(), 1);
-    assert!(index.approve("IN", "Chup Ho Ja Satvi"));
-    assert_eq!(index.approved("IN").len(), 1);
-    assert!(index.remove("IN", "Chup Ho Ja Satvi"));
+#[test]
+fn snapshots_from_the_review_era_still_load_and_are_usable() {
+    let json = r#"{"memes": [{"region": "IN", "title": "Fukra Insaan Bhai", "meaning": "playful teasing",
+        "url": "https://media1.giphy.com/media/x/7MA7/200.webp", "page_url": "https://giphy.com/gifs/x-7MA7",
+        "intents": ["banter"], "tags": ["bhai"], "rating": "g", "verified": 0.77, "status": "pending",
+        "used": 0, "added_at": 1}], "searches": []}"#;
+    let index = MemeIndex::from_json(json, MemeIndexPolicy::default()).unwrap();
+    assert_eq!(index.catalog("IN").len(), 1);
+    assert!(index.find("IN", "Fukra Insaan Bhai").is_some());
+    assert!(index.remove("IN", "Fukra Insaan Bhai"));
     assert!(index.is_empty("IN"));
 }
 

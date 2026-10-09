@@ -64,7 +64,7 @@ pub use env::{EnvConfig, JevMode};
 pub use error::{BoxError, Error, Result};
 pub use intent::Intent;
 pub use llm_eval::LlmEvaluator;
-pub use meme_index::{LearnedMeme, MemeIndex, MemeIndexPolicy, MemeLearnReport, MemeStatus};
+pub use meme_index::{LearnedMeme, MemeIndex, MemeIndexPolicy, MemeLearnReport};
 pub use meme_research::{FoundMeme, GiphyPageResearcher, MemeResearcher};
 pub use rating::{Rating, RatingPolicy, Tier};
 pub use reading::{Evaluator, Reading};
@@ -312,7 +312,7 @@ impl MemeEngine {
             .memes
             .iter()
             .cloned()
-            .chain(self.agent.meme_index().approved(&region.code))
+            .chain(self.agent.meme_index().catalog(&region.code))
             .filter(|m| !recently_sent.contains(&m.title.to_lowercase()))
             .collect();
         let reading = reading::read(

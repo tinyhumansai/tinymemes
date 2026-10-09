@@ -175,7 +175,7 @@ impl SlangAgent {
                         .iter()
                         .find(|m| &m.title == title)
                         .map(|m| m.to_meme())
-                        .or_else(|| self.memes.find_approved(&self.region.code, title));
+                        .or_else(|| self.memes.find(&self.region.code, title));
                     (
                         vec![format!("jev:{title}")],
                         picked.into_iter().filter(not_sent).collect(),

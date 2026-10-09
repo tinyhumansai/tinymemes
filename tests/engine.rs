@@ -773,8 +773,8 @@ async fn gaali_already_in_the_agent_reply_does_not_block_the_remix() {
 }
 
 #[tokio::test]
-async fn approved_learned_gifs_are_offered_to_jev_and_sent() {
-    use tinymemes::{LearnedMeme, MemeIndex, MemeIndexPolicy, MemeStatus};
+async fn learned_gifs_are_offered_to_jev_and_sent() {
+    use tinymemes::{LearnedMeme, MemeIndex, MemeIndexPolicy};
     let index = Arc::new(
         MemeIndex::from_json(
             &serde_json::json!({
@@ -788,7 +788,6 @@ async fn approved_learned_gifs_are_offered_to_jev_and_sent() {
                     tags: vec!["tmkoc".into()],
                     rating: "g".into(),
                     verified: 0.9,
-                    status: MemeStatus::Approved,
                     used: 0,
                     added_at: 1,
                 }],
