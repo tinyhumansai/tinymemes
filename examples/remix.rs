@@ -15,10 +15,7 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use tinyinference_decisions::{Client, ClientConfig};
-use tinymemes::model::OpenAiCompatible;
-use tinymemes::slang::OpenRouterWebResearcher;
-use tinymemes::source::{Giphy, Imgflip, Tenor};
+use tinymemes::source::{Giphy, Tenor};
 use tinymemes::{IndexPolicy, MemeEngine, SlangIndex, Turn};
 
 #[derive(Deserialize)]
@@ -29,9 +26,6 @@ struct Input {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let key = std::env::var("OPENROUTER_API_KEY")?;
-    let model = std::env::var("TINYMEMES_MODEL")
-        .unwrap_or_else(|_| "deepseek/deepseek-v4-flash".to_owned());
     let http = reqwest::Client::new();
 
     // The slang index persists between runs, so it grows with every query.
@@ -42,17 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => SlangIndex::new(IndexPolicy::default()),
     });
 
-    let mut builder = MemeEngine::builder(
-        Arc::new(Client::new(ClientConfig::openrouter(&key))?),
-        Arc::new(OpenAiCompatible::openrouter(http.clone(), &key, model)),
-    )
-    .slang_index(index.clone())
-    .researcher(Arc::new(OpenRouterWebResearcher::new(
-        http.clone(),
-        &key,
-        "deepseek/deepseek-v4-flash",
-    )))
-    .source(Arc::new(Imgflip::new(http.clone())));
+    // Standalone: everything from TINYMEMES_* env (OPENROUTER_API_KEY works
+    // too). TINYMEMES_JEV=llm answers Jev's questions with the chat model.
+    let mut builder = MemeEngine::from_env()?.slang_index(index.clone());
     if let Ok(k) = std::env::var("GIPHY_API_KEY") {
         builder = builder.source(Arc::new(Giphy::new(http.clone(), k)));
     }

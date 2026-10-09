@@ -82,8 +82,8 @@ search.
 | --- | --- | --- | --- |
 | Off | 0–2 | none | 0 |
 | Light | 3–4 | a few casual phrases | 0 |
-| Spicy | 5–7 | slangy internet voice | 1 |
-| Unhinged | 8–10 | full group-chat | 2 |
+| Spicy | 5–7 | slangy internet voice | 0 |
+| Unhinged | 8–10 | full group-chat | 1 (none if one was sent in the last 3 replies) |
 
 ## Guarantees
 
@@ -97,33 +97,59 @@ search.
 
 ## Use
 
+Every backend is a trait (`Evaluator` for Jev, `ChatModel`, `MemeSource`,
+`SlangResearcher`, `WebSearch`), so a host plugs in its own stack:
+
 ```rust
-let engine = MemeEngine::builder(Arc::new(jev_client), Arc::new(chat_model))
+let engine = MemeEngine::builder(jev, chat_model)
     .source(Arc::new(Imgflip::new(http.clone())))
+    .slang_index(index)
+    .researcher(Arc::new(SearchResearcher::new(host_search, chat_model.clone())))
     .build();
-let out = engine.process(&conversation, &reply).await;
-send(out.reply);
+let out = engine.process(&conversation, &reply).await;   // never fails; falls back to `reply`
 ```
 
-`Evaluator`, `ChatModel`, and `MemeSource` are traits, so OpenHuman can plug in
-its own Jev client, provider, and catalogs. `tinyinference_decisions::Client`
-implements `Evaluator` directly, and `OpenAiCompatible` covers OpenRouter.
+### No Jev? The LLM answers Jev's questions
 
-Live run (one Jev call plus up to two model calls):
+`LlmEvaluator` wraps any `ChatModel` and answers the same Choice, Score and
+Noul questions as JSON. It is validated like a Jev response: unknown options
+are dropped and out-of-range levels are clamped. So the whole engine (reading,
+slang fit, slang verification) works with no Jev route at all.
+
+### Configuration: host first, `TINYMEMES_*` env overrides
+
+| variable | meaning |
+| --- | --- |
+| `TINYMEMES_OPENROUTER_KEY` | OpenRouter for the rewrite model and web research |
+| `TINYMEMES_MODEL` | rewrite model (default `deepseek/deepseek-v4-flash`, reasoning disabled) |
+| `TINYMEMES_JEV` | `auto` (default), `typesafe`, `openrouter`, `openjev`, or `llm` |
+| `TINYMEMES_TYPESAFE_KEY` / `TYPESAFE_API_KEY` | TypeSafe System One |
+| `TINYMEMES_OPENJEV_KEY` / `OPENJEV_API_KEY` | OpenJEV |
+
+Inside OpenHuman, anything unset falls through to OpenHuman's own settings.
+Standalone, `MemeEngine::from_env()` builds the whole engine from these
+variables (it also accepts `OPENROUTER_API_KEY`):
 
 ```sh
 OPENROUTER_API_KEY=… cargo run --example remix
-OPENROUTER_API_KEY=… cargo run --example remix -- chat.json
+TINYMEMES_JEV=llm OPENROUTER_API_KEY=… cargo run --example remix -- chat.json
 ```
 
-Optional: `TINYMEMES_MODEL` (default `deepseek/deepseek-v4-flash`), `GIPHY_API_KEY`,
-`TENOR_API_KEY`. Imgflip needs no key.
+Optional extra meme sources: `GIPHY_API_KEY`, `TENOR_API_KEY`. Imgflip needs no key.
 
 ## Vendoring into OpenHuman
 
-Add `vendor/tinymemes` as a submodule, depend on it by path, and point its Jev
-dependency at the copy OpenHuman already vendors by adding one line to the
-existing patch table:
+OpenHuman vendors this repo at `vendor/tinymemes`. Its host adapter
+(`crates/openhuman-core/src/tinymemes/`) supplies:
+
+- **Inference:** OpenHuman's configured provider for the `summarization` role
+  (managed backend, BYOK, or local), with reasoning off.
+- **Jev:** OpenHuman-managed Jev through the TinyHumans backend when signed in,
+  then `jev_route` keys, then the LLM fallback above.
+- **Web search:** OpenHuman's search stack, through `SearchResearcher`.
+
+It is gated by `OPENHUMAN_TINYMEMES=off|on|ab|ab:NN`. The Jev client is unified
+with OpenHuman's vendored copy by one line in the root patch table:
 
 ```toml
 [patch."https://github.com/tinyhumansai/tinyinference"]

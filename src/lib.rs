@@ -39,12 +39,15 @@
 
 pub mod agent;
 pub mod conversation;
+pub mod env;
 mod error;
 pub mod intent;
+pub mod llm_eval;
 pub mod model;
 pub mod rating;
 pub mod reading;
 pub mod region;
+pub mod research;
 pub mod slang;
 pub mod source;
 
@@ -55,13 +58,19 @@ use serde::Serialize;
 
 pub use agent::{Remix, SlangAgent};
 pub use conversation::{Role, SentMeme, Turn, Window, memes_as_text};
+pub use env::{EnvConfig, JevMode};
 pub use error::{BoxError, Error, Result};
 pub use intent::Intent;
+pub use llm_eval::LlmEvaluator;
 pub use rating::{Rating, RatingPolicy, Tier};
 pub use reading::{Evaluator, Reading};
 pub use region::{CatalogMeme, Region, SlangTerm};
+pub use research::{SearchHit, SearchResearcher, WebSearch};
 pub use slang::{IndexPolicy, LearnReport, SlangIndex, SlangResearcher};
 pub use source::{Meme, MemeSource};
+/// The Jev client crate, re-exported so hosts build clients with the exact
+/// version tinymemes speaks.
+pub use tinyinference_decisions as decisions;
 
 /// Everything the engine decided about one reply.
 #[derive(Clone, Debug, Serialize)]
@@ -103,6 +112,42 @@ impl std::fmt::Debug for MemeEngine {
 }
 
 impl MemeEngine {
+    /// A standalone engine builder from `TINYMEMES_*` env (see [`env`]):
+    /// OpenRouter for the rewrite model and web research
+    /// (`TINYMEMES_OPENROUTER_KEY`, else `OPENROUTER_API_KEY`), Jev from the
+    /// configured route, or the LLM fallback when there is none.
+    pub fn from_env() -> Result<MemeEngineBuilder> {
+        let mut env = EnvConfig::from_env();
+        if env.openrouter_key.is_none() {
+            env.openrouter_key = std::env::var("OPENROUTER_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty());
+        }
+        let http = reqwest::Client::new();
+        let model = env.chat_model(&http).ok_or_else(|| {
+            Error::Model("set TINYMEMES_OPENROUTER_KEY or OPENROUTER_API_KEY".into())
+        })?;
+        let jev = match env.jev()? {
+            Some((jev, _)) => jev,
+            None if !env.forces_llm_jev() => match &env.openrouter_key {
+                Some(key) => Arc::new(
+                    tinyinference_decisions::Client::new(
+                        tinyinference_decisions::ClientConfig::openrouter(key),
+                    )
+                    .map_err(|e| Error::Reading(Box::new(e)))?,
+                ),
+                None => env::llm_jev(model.clone()),
+            },
+            None => env::llm_jev(model.clone()),
+        };
+        let mut builder =
+            Self::builder(jev, model).source(Arc::new(source::Imgflip::new(http.clone())));
+        if let Some(researcher) = env.web_researcher(&http) {
+            builder = builder.researcher(Arc::new(researcher));
+        }
+        Ok(builder)
+    }
+
     /// An engine builder wired to OpenRouter for everything: Jev (System
     /// One), the rewrite model `model`, web slang research, and Imgflip memes.
     /// The region defaults to India; add a slang index or other options on the

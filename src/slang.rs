@@ -703,7 +703,7 @@ impl SlangResearcher for OpenRouterWebResearcher {
     }
 }
 
-fn norm_url(url: &str) -> String {
+pub(crate) fn norm_url(url: &str) -> String {
     let url = url.split('#').next().unwrap_or(url);
     let url = url.split("?utm_").next().unwrap_or(url);
     url.trim_end_matches('/').to_lowercase()
