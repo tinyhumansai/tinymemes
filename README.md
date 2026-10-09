@@ -143,9 +143,10 @@ OpenHuman vendors this repo at `vendor/tinymemes`. Its host adapter
 (`crates/openhuman-core/src/tinymemes/`) supplies:
 
 - **Inference:** OpenHuman's configured provider for the `summarization` role
-  (managed backend, BYOK, or local), with reasoning off.
-- **Jev:** OpenHuman-managed Jev through the TinyHumans backend when signed in,
-  then `jev_route` keys, then the LLM fallback above.
+  (managed backend or BYOK), with that provider's own reasoning behaviour.
+- **Jev:** always the OpenHuman-managed Jev (TinyHumans backend). When it is
+  unavailable (signed out, offline session), OpenHuman's LLM answers Jev's
+  questions instead. Another Jev route only when `TINYMEMES_JEV` sets one.
 - **Web search:** OpenHuman's search stack, through `SearchResearcher`.
 
 It is gated by `OPENHUMAN_TINYMEMES=off|on|ab|ab:NN`. The Jev client is unified
