@@ -1,7 +1,11 @@
 //! Reaction GIFs learned from the web, vetted before Jev may pick them.
 //!
 //! Research runs when a reply was allowed a meme but Jev found nothing in the
-//! catalog that fits (`none_fit`). Each candidate passes, in order:
+//! catalog that fits (`none_fit`). The search is for the moment the user is in:
+//! the chat model turns their message into a short, generic meme concept (a
+//! known catchphrase such as "Sharma ji ka beta", never personal details), so
+//! what is learned is the meme that was actually missing. Each candidate then
+//! passes, in order:
 //!
 //! 1. **Host rating**: GIPHY's own content rating must be G or PG. This is the
 //!    image-level check (GIPHY moderates the media itself).
@@ -11,8 +15,8 @@
 //! 4. **Jev**: verifies it is a widely recognised reaction GIF with that
 //!    meaning and is not political, religious, sexual, violent, or mocking.
 //!
-//! Survivors are approved automatically, or held as pending when the policy
-//! asks for human review.
+//! Survivors are held as pending until a person approves them (the default),
+//! or approved automatically when the policy allows it.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, RwLock};
@@ -136,8 +140,8 @@ impl Default for MemeIndexPolicy {
         Self {
             refresh_after_secs: 3 * 24 * 3600,
             max_searches_per_day: 20,
-            min_verified: 0.6,
-            auto_approve: true,
+            min_verified: 0.75,
+            auto_approve: false,
             offer: 30,
         }
     }
@@ -307,20 +311,31 @@ impl MemeIndex {
         verifier: (&dyn Evaluator, bool),
         region: &Region,
         intent: Intent,
+        moment: &str,
     ) -> Result<Option<MemeLearnReport>, BoxError> {
         let now = unix_now();
-        let query = region.meme_query.replace("{intent}", intent.phrase());
-        if self.searches_today(&region.code, now) >= self.policy.max_searches_per_day
-            || self.ran_recently(&region.code, &query, now)
-        {
+        if self.searches_today(&region.code, now) >= self.policy.max_searches_per_day {
             return Ok(None);
         }
-        let key = format!("{}/{}", region.code, intent);
+        // Search for the moment the user is in, not the broad intent bucket.
+        let concept = meme_concept(describer, region, intent, moment)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::debug!(error = %e, "[tinymemes] meme concept failed; using the intent");
+                intent.phrase().to_owned()
+            });
+        let query = region.meme_query.replace("{moment}", &concept);
+        if self.ran_recently(&region.code, &query, now) {
+            return Ok(None);
+        }
+        let key = format!("{}/{}", region.code, query);
         if !self.in_flight.lock().unwrap().insert(key.clone()) {
             return Ok(None);
         }
         let result = self
-            .research_and_vet(researcher, describer, verifier, region, intent, &query, now)
+            .research_and_vet(
+                researcher, describer, verifier, region, &concept, &query, now,
+            )
             .await;
         self.in_flight.lock().unwrap().remove(&key);
         let report = result?;
@@ -342,7 +357,7 @@ impl MemeIndex {
         describer: &dyn ChatModel,
         verifier: (&dyn Evaluator, bool),
         region: &Region,
-        intent: Intent,
+        concept: &str,
         query: &str,
         now: u64,
     ) -> Result<MemeLearnReport, BoxError> {
@@ -385,7 +400,7 @@ impl MemeIndex {
         }
 
         // 3. Name and meaning from the model.
-        let described = describe(describer, region, intent, &candidates).await?;
+        let described = describe(describer, region, concept, &candidates).await?;
         if described.is_empty() {
             return Ok(report);
         }
@@ -444,6 +459,37 @@ fn touches_blocked_topic(region: &Region, f: &FoundMeme) -> bool {
         .any(|b| words.iter().any(|w| w == &b.to_lowercase()))
 }
 
+/// Turn the user's message into a short, generic meme concept to search for.
+/// Only the concept leaves the process: no names, places, numbers, or the
+/// user's own words beyond a widely known catchphrase.
+async fn meme_concept(
+    model: &dyn ChatModel,
+    region: &Region,
+    intent: Intent,
+    moment: &str,
+) -> Result<String, BoxError> {
+    #[derive(Deserialize)]
+    struct Out {
+        concept: String,
+    }
+    let system = format!(
+        "Name the reaction-meme moment in a chat message, for a GIF search in {region}. Reply \
+         with JSON only: {{\"concept\": \"...\"}}, 2-6 words. Use a widely known meme \
+         catchphrase or trope if the message invokes one (for example Sharma ji ka beta, emotional \
+         damage, leg day); otherwise describe the situation generically. Never include names of \
+         private people, workplaces, places, numbers, or other personal details from the message.",
+        region = region.name,
+    );
+    let user = format!("Mood: {}\nMessage: {}", intent.phrase(), clean(moment, 400));
+    let text = model.complete(&system, &user).await?;
+    let json = crate::agent::json_object(&text).ok_or("meme concept reply had no JSON")?;
+    let concept = clean(&serde_json::from_str::<Out>(json)?.concept, 60);
+    if concept.split_whitespace().count() == 0 {
+        return Err("empty meme concept".into());
+    }
+    Ok(concept)
+}
+
 struct Described {
     found: FoundMeme,
     name: String,
@@ -454,7 +500,7 @@ struct Described {
 async fn describe(
     model: &dyn ChatModel,
     region: &Region,
-    intent: Intent,
+    concept: &str,
     candidates: &[FoundMeme],
 ) -> Result<Vec<Described>, BoxError> {
     #[derive(Deserialize)]
@@ -480,7 +526,7 @@ async fn describe(
         region = region.name,
         intents = intents.join(", "),
     );
-    let mut user = format!("Looking for GIFs for: {}\n\n", intent.phrase());
+    let mut user = format!("Looking for GIFs for the moment: {concept}\n\n");
     for (i, c) in candidates.iter().enumerate() {
         user.push_str(&format!(
             "{}. title: {} | slug: {} | tags: {}\n",
@@ -530,8 +576,9 @@ async fn verify(
             let q = Question::Noul(Noul {
                 instructions: json!(format!(
                     "\"{}\", a GIF titled \"{}\" and tagged [{}], is a widely recognised reaction \
-                     GIF that people in {} post {}, and it is not political, religious, sexual, \
-                     violent, or mocking a community.",
+                     meme or GIF from {} internet culture that people post {}, and it is not \
+                     political, religious, sexual, violent, mocking a community, or satire of a \
+                     real politician, journalist, or public figure.",
                     d.name,
                     d.found.title,
                     d.found.tags.join(", "),

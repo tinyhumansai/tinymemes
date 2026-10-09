@@ -267,7 +267,13 @@ impl MemeEngine {
     /// Research new reaction GIFs for `intent`, vet them, and add the
     /// survivors. Hosts call this in the background when
     /// [`Outcome::wants_more_memes`] is true.
-    pub async fn learn_memes(&self, intent: Intent) -> Result<Option<MemeLearnReport>> {
+    /// `moment` is the user's latest message; only a short, generic meme
+    /// concept derived from it is searched.
+    pub async fn learn_memes(
+        &self,
+        intent: Intent,
+        moment: &str,
+    ) -> Result<Option<MemeLearnReport>> {
         let Some(researcher) = &self.meme_researcher else {
             return Ok(None);
         };
@@ -279,6 +285,7 @@ impl MemeEngine {
                 (self.jev.as_ref(), self.openjev),
                 self.agent.region(),
                 intent,
+                moment,
             )
             .await
             .map_err(Error::Research)

@@ -66,7 +66,8 @@ pub struct Region {
     pub reply_query: String,
     /// Memes searched before any external source.
     pub memes: Vec<CatalogMeme>,
-    /// Web search for new reaction GIFs; `{intent}` is filled per research step.
+    /// Web search for new reaction GIFs; `{moment}` is the meme concept of the
+    /// user's message.
     #[serde(default)]
     pub meme_query: String,
     /// Words that keep a learned GIF out whatever its rating (matched against
@@ -287,7 +288,7 @@ impl Region {
                      "Hera Pheri, Baburao: 'I'll take a nice little nap'; work done, time to relax",
                      &[Celebration, Grind, Gratitude]),
             ],
-            meme_query: "Indian reaction meme GIF for {intent} site:giphy.com".to_owned(),
+            meme_query: "{moment} Indian meme GIF site:giphy.com".to_owned(),
             meme_topic_blocklist: MEME_TOPICS_GLOBAL
                 .iter()
                 .chain(MEME_TOPICS_INDIA)
@@ -343,7 +344,7 @@ impl Region {
             .map(String::from)
             .to_vec(),
             memes: Vec::new(),
-            meme_query: "reaction meme GIF for {intent} site:giphy.com".to_owned(),
+            meme_query: "{moment} reaction meme GIF site:giphy.com".to_owned(),
             meme_topic_blocklist: MEME_TOPICS_GLOBAL.iter().map(|w| (*w).to_owned()).collect(),
             blocklist: ENGLISH_BLOCKLIST.iter().map(|w| (*w).to_owned()).collect(),
             giphy_lang: None,

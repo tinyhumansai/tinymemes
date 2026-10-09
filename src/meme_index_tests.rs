@@ -30,7 +30,10 @@ struct Describer;
 
 #[async_trait]
 impl ChatModel for Describer {
-    async fn complete(&self, _system: &str, user: &str) -> Result<String, BoxError> {
+    async fn complete(&self, system: &str, user: &str) -> Result<String, BoxError> {
+        if system.starts_with("Name the reaction-meme moment") {
+            return Ok(r#"{"concept": "Sharma ji ka beta"}"#.into());
+        }
         let n = user.lines().filter(|l| l.contains(". title: ")).count();
         let memes: Vec<String> = (1..=n)
             .map(|i| {
@@ -71,7 +74,11 @@ impl Evaluator for Jev {
 #[tokio::test]
 async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
     let region = Region::india();
-    let index = MemeIndex::new(MemeIndexPolicy::default());
+    let index = MemeIndex::new(MemeIndexPolicy {
+        auto_approve: true,
+        min_verified: 0.6,
+        ..MemeIndexPolicy::default()
+    });
     let researcher = Found(
         vec![
             gif(
@@ -98,6 +105,7 @@ async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
             (&Jev, false),
             &region,
             Intent::Banter,
+            "mummy said Sharma ji ka beta got 98 lol",
         )
         .await
         .unwrap()
@@ -123,6 +131,7 @@ async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
             (&Jev, false),
             &region,
             Intent::Banter,
+            "mummy said Sharma ji ka beta got 98 lol",
         )
         .await
         .unwrap();
@@ -133,8 +142,9 @@ async fn vetting_keeps_only_rated_on_topic_verified_new_gifs() {
 #[tokio::test]
 async fn review_mode_holds_new_gifs_until_approved() {
     let region = Region::india();
+    // Review is the default.
     let index = MemeIndex::new(MemeIndexPolicy {
-        auto_approve: false,
+        min_verified: 0.6,
         ..MemeIndexPolicy::default()
     });
     let researcher = Found(
@@ -148,6 +158,7 @@ async fn review_mode_holds_new_gifs_until_approved() {
             (&Jev, false),
             &region,
             Intent::Banter,
+            "mummy said Sharma ji ka beta got 98 lol",
         )
         .await
         .unwrap()
@@ -173,4 +184,36 @@ fn snapshot_round_trips() {
     let index = MemeIndex::new(MemeIndexPolicy::default());
     let restored = MemeIndex::from_json(&index.to_json(), MemeIndexPolicy::default()).unwrap();
     assert!(restored.is_empty("IN"));
+}
+
+struct Recorder(StdMutex<Vec<String>>);
+
+#[async_trait]
+impl MemeResearcher for Recorder {
+    async fn research(&self, query: &str) -> Result<Vec<FoundMeme>, BoxError> {
+        self.0.lock().unwrap().push(query.to_owned());
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn the_search_is_for_the_users_moment_not_the_intent() {
+    let region = Region::india();
+    let index = MemeIndex::new(MemeIndexPolicy::default());
+    let rec = Recorder(StdMutex::new(Vec::new()));
+    index
+        .learn(
+            &rec,
+            &Describer,
+            (&Jev, false),
+            &region,
+            Intent::Banter,
+            "my boss Rajesh said Sharma ji ka beta",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rec.0.lock().unwrap().as_slice(),
+        ["Sharma ji ka beta Indian meme GIF site:giphy.com"]
+    );
 }
