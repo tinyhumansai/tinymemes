@@ -325,7 +325,14 @@ impl MemeEngine {
 
     /// Read, rate, and remix, returning errors instead of falling back.
     pub async fn try_process(&self, conversation: &[Turn], reply: &str) -> Result<Outcome> {
-        let (reading, mut rating) = self.rate(conversation, reply).await?;
+        let (mut reading, mut rating) = self.rate(conversation, reply).await?;
+        // A weak pick (Jev unsure between memes and none) is no pick: better no
+        // meme than a poorly matched one, and it marks the catalog as short.
+        if matches!(reading.meme, reading::MemePick::Pick(_))
+            && reading.meme_p.is_some_and(|p| p < self.policy.meme_min_p)
+        {
+            reading.meme = reading::MemePick::NoneFit;
+        }
         // Meme cooldown: no meme if one went out in the last few replies.
         let cooldown = self.policy.meme_cooldown_turns;
         if rating.max_memes > 0 && cooldown > 0 {

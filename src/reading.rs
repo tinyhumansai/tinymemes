@@ -150,6 +150,9 @@ pub struct Reading {
     pub reply_matches_user: Option<f64>,
     /// Which catalog meme (if any) fits this reply.
     pub meme: MemePick,
+    /// Jev's probability for the meme it picked (`None` when it picked
+    /// `none_fit` or was not asked). A weak pick is treated as `none_fit`.
+    pub meme_p: Option<f64>,
 }
 
 impl Reading {
@@ -352,6 +355,15 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
         },
         slang_enough: noul(SLANG_ENOUGH).ok(),
         reply_matches_user: noul(REPLY_MATCHES).ok(),
+        meme_p: match response.answers.get(MEME_BEST) {
+            Some(Answer::Choice(c)) if c.choice != NONE_FIT => Some(
+                c.probabilities
+                    .get(&c.choice)
+                    .copied()
+                    .unwrap_or(c.confidence),
+            ),
+            _ => None,
+        },
         meme: match response.answers.get(MEME_BEST) {
             Some(Answer::Choice(c)) if c.choice == NONE_FIT => MemePick::NoneFit,
             Some(Answer::Choice(c)) => MemePick::Pick(c.choice.clone()),

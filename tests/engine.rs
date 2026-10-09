@@ -835,3 +835,39 @@ async fn none_fit_on_a_meme_eligible_reply_asks_for_research() {
     .build();
     assert!(!engine.process(&chat(), "Sorry.").await.wants_more_memes());
 }
+
+#[tokio::test]
+async fn a_weak_meme_pick_counts_as_none_fit_and_asks_for_research() {
+    struct Unsure;
+    #[async_trait]
+    impl Evaluator for Unsure {
+        async fn evaluate(
+            &self,
+            request: &EvaluationRequest,
+        ) -> Result<EvaluationResponse, BoxError> {
+            let inner = jev(0.9, 0.9, 0.0, "banter");
+            let mut resp = inner.evaluate(request).await?;
+            resp.answers.insert(
+                "meme_best".into(),
+                Answer::Choice(ChoiceAnswer {
+                    choice: "Dekh Raha Hai Na Binod".into(),
+                    probabilities: BTreeMap::from([
+                        ("Dekh Raha Hai Na Binod".to_owned(), 0.31),
+                        ("none_fit".to_owned(), 0.27),
+                    ]),
+                    confidence: 0.2,
+                }),
+            );
+            Ok(resp)
+        }
+    }
+    let engine = MemeEngine::builder(Arc::new(Unsure), model("lol [[meme:1]]")).build();
+    let out = engine
+        .process(&chat(), "Sharma ji ka beta strikes again.")
+        .await;
+    let reading = out.reading.as_ref().unwrap();
+    assert_eq!(reading.meme_p, Some(0.31));
+    assert_eq!(reading.meme, tinymemes::reading::MemePick::NoneFit);
+    assert!(out.remix.as_ref().unwrap().memes.is_empty());
+    assert!(out.wants_more_memes());
+}

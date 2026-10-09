@@ -13,6 +13,7 @@ fn reading(frankness: f64, playful: f64, serious: f64, intent: Intent) -> Readin
         user_language: None,
         meme: crate::reading::MemePick::Unasked,
         reply_matches_user: None,
+        meme_p: None,
     }
 }
 

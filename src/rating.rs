@@ -65,6 +65,9 @@ pub struct RatingPolicy {
     /// When Jev's `reply_matches_user` is at least this, skip the rewrite and
     /// only attach a meme (the agent already sounds like the user).
     pub meme_only_above: f64,
+    /// A meme Jev picks with less probability than this counts as `none_fit`:
+    /// no meme is sent, and hosts may research a better one.
+    pub meme_min_p: f64,
 }
 
 impl Default for RatingPolicy {
@@ -78,6 +81,7 @@ impl Default for RatingPolicy {
             unhinged_memes: 1,
             meme_cooldown_turns: 3,
             meme_only_above: 0.6,
+            meme_min_p: 0.5,
         }
     }
 }
