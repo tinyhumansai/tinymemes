@@ -31,8 +31,9 @@ conversation + reply
   *meaning*, so the model places it where the joke lands. Catalog hits rank
   ahead of Imgflip's global top 100. GIPHY gets `lang=hi`, and Tenor gets
   `locale=en_IN` and `country=IN`.
-- **Blocklist:** English profanity and Hindi gaali. A rewrite that uses one is
-  discarded and the original wording is kept.
+- **Blocklist:** English profanity and Hindi gaali. It keeps gaali out of the
+  learned slang index and the learned meme catalog; rewrites are not rejected for it
+  (the rewrite prompt asks for no gaali).
 
 `Region::global()` is the plain English alternative. Packs are plain data, so a
 host can extend them.

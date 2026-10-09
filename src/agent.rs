@@ -37,8 +37,8 @@ pub struct Remix {
     pub slang_offered: Vec<String>,
     /// Indexed terms found in the final reply.
     pub slang_used: Vec<String>,
-    /// False when the slang rewrite was discarded (it dropped code or links,
-    /// ballooned, or added a blocklisted word) and the original wording was kept.
+    /// False when the slang rewrite was discarded (it dropped code or links, or
+    /// ballooned) and the original wording was kept.
     pub rewrite_kept: bool,
     /// Whether the reply was rewritten or only had a meme attached.
     pub mode: RemixMode,
@@ -252,16 +252,9 @@ impl SlangAgent {
             );
         }
 
-        // Only gaali the rewrite adds counts; words already in the agent's reply
-        // are the agent's, and sending the original would not remove them.
-        let added = self.region.blocked_added(reply, &rewritten);
-        let (text, rewrite_kept) = if !added.is_empty() {
-            tracing::warn!(
-                ?added,
-                "[tinymemes] rewrite added blocklisted words; keeping original wording"
-            );
-            (reply.to_owned(), false)
-        } else if !preserves_protected(reply, &rewritten) || !within_length(reply, &rewritten) {
+        let (text, rewrite_kept) = if !preserves_protected(reply, &rewritten)
+            || !within_length(reply, &rewritten)
+        {
             tracing::warn!(
                 "[tinymemes] rewrite dropped protected content or ballooned; keeping original wording"
             );

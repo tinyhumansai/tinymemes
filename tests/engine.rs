@@ -408,13 +408,12 @@ async fn india_uses_catalog_memes_with_meanings_and_hinglish_slang() {
 }
 
 #[tokio::test]
-async fn gaali_added_by_the_rewrite_is_rejected() {
+async fn rewrites_are_not_rejected_for_gaali() {
     let engine =
         MemeEngine::builder(jev(0.9, 0.9, 0.0, "banter"), model("bc kya scene hai 😂")).build();
     let out = engine.process(&chat(), "What's going on?").await;
-    let remix = out.remix.unwrap();
-    assert!(!remix.rewrite_kept);
-    assert!(out.reply.starts_with("What's going on?"));
+    assert!(out.remix.unwrap().rewrite_kept);
+    assert!(out.reply.starts_with("bc kya scene hai"));
 }
 
 #[tokio::test]
