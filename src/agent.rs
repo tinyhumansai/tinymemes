@@ -198,8 +198,9 @@ impl SlangAgent {
 
         // Meme-only mode: the agent's reply already matches the user's register,
         // so a rewrite would add little and risk artifacts. Keep the wording and
-        // only attach Jev's meme.
-        if meme_only {
+        // only attach Jev's meme. Only when a meme will actually be attached:
+        // with none, meme-only would change nothing, so the reply is rewritten.
+        if meme_only && rating.max_memes > 0 && !candidates.is_empty() {
             let (reply, memes) = attach_meme(reply, &candidates, rating.max_memes);
             memes.iter().for_each(|m| self.memes.record_used(&m.url));
             let slang_used = self.index.record_used(&self.region.code, &reply);

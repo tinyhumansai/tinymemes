@@ -153,6 +153,9 @@ pub struct Reading {
     /// Jev's probability for the meme it picked (`None` when it picked
     /// `none_fit` or was not asked). A weak pick is treated as `none_fit`.
     pub meme_p: Option<f64>,
+    /// The meme Jev leaned towards when its pick was too weak to send (the
+    /// pick became `none_fit`). For logging and catalog analysis.
+    pub meme_weak: Option<String>,
 }
 
 impl Reading {
@@ -355,6 +358,7 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
         },
         slang_enough: noul(SLANG_ENOUGH).ok(),
         reply_matches_user: noul(REPLY_MATCHES).ok(),
+        meme_weak: None,
         meme_p: match response.answers.get(MEME_BEST) {
             Some(Answer::Choice(c)) if c.choice != NONE_FIT => Some(
                 c.probabilities

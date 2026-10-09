@@ -335,9 +335,10 @@ impl MemeEngine {
         let (mut reading, mut rating) = self.rate(conversation, reply).await?;
         // A weak pick (Jev unsure between memes and none) is no pick: better no
         // meme than a poorly matched one, and it marks the catalog as short.
-        if matches!(reading.meme, reading::MemePick::Pick(_))
-            && reading.meme_p.is_some_and(|p| p < self.policy.meme_min_p)
+        if reading.meme_p.is_some_and(|p| p < self.policy.meme_min_p)
+            && let reading::MemePick::Pick(title) = &reading.meme
         {
+            reading.meme_weak = Some(title.clone());
             reading.meme = reading::MemePick::NoneFit;
         }
         // Meme cooldown: no meme if one went out in the last few replies.

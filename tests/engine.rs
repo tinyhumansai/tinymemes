@@ -867,6 +867,30 @@ async fn a_weak_meme_pick_counts_as_none_fit_and_asks_for_research() {
     let reading = out.reading.as_ref().unwrap();
     assert_eq!(reading.meme_p, Some(0.31));
     assert_eq!(reading.meme, tinymemes::reading::MemePick::NoneFit);
+    assert_eq!(reading.meme_weak.as_deref(), Some("Dekh Raha Hai Na Binod"));
     assert!(out.remix.as_ref().unwrap().memes.is_empty());
     assert!(out.wants_more_memes());
+}
+
+#[tokio::test]
+async fn reply_that_matches_but_has_no_meme_is_rewritten() {
+    let model = spy("arre veer, kya scene hai? 😂");
+    let jev = Arc::new(ScriptedJev {
+        matches: Some(0.85),
+        ..Arc::try_unwrap(jev_meme("banter", "none_fit"))
+            .ok()
+            .unwrap()
+    });
+    let engine = MemeEngine::builder(jev, model.clone()).build();
+    let out = engine
+        .process(
+            &[Turn::user("haan vi bhai")],
+            "Are aa gaye veer! Kya kaam hai?",
+        )
+        .await;
+    let remix = out.remix.unwrap();
+    // Meme-only would have changed nothing, so the reply is rewritten instead.
+    assert_eq!(remix.mode, tinymemes::RemixMode::Rewrite);
+    assert_eq!(out.reply, "arre veer, kya scene hai? 😂");
+    assert_eq!(model.systems.lock().unwrap().len(), 1);
 }

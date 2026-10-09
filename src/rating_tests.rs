@@ -14,6 +14,7 @@ fn reading(frankness: f64, playful: f64, serious: f64, intent: Intent) -> Readin
         meme: crate::reading::MemePick::Unasked,
         reply_matches_user: None,
         meme_p: None,
+        meme_weak: None,
     }
 }
 
