@@ -17,7 +17,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
 tracing = "0.1"
 # Jev decision model client. OpenHuman redirects this to its vendored copy via
 # `[patch."https://github.com/tinyhumansai/tinyinference"]`, so the host and

@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use tinyinference_decisions::{
     Answer, ChoiceAnswer, EvaluationRequest, EvaluationResponse, NoulAnswer, ScoreAnswer, Usage,
 };
-use tinymemes::{BoxError, ChatModel, Evaluator, Intent, Meme, MemeEngine, MemeSource, Tier, Turn};
+use tinymemes::{
+    BoxError, ChatModel, Evaluator, Intent, Meme, MemeEngine, MemeSource, Region, Tier, Turn,
+};
 
 struct ScriptedJev {
     frankness: f64,
@@ -52,6 +54,18 @@ impl Evaluator for ScriptedJev {
                 ),
             ]),
             usage: Usage::default(),
+        })
+        .map(|mut resp: EvaluationResponse| {
+            // Slang verification asks one Noul per candidate term.
+            for (id, q) in &request.questions {
+                if id.starts_with('t') && id[1..].chars().all(|c| c.is_ascii_digit()) {
+                    let fake = serde_json::to_string(q).unwrap().contains("fake");
+                    let p = if fake { 0.1 } else { 0.9 };
+                    resp.answers
+                        .insert(id.clone(), Answer::Noul(NoulAnswer { noul: p }));
+                }
+            }
+            resp
         })
     }
 }
@@ -102,12 +116,14 @@ impl MemeSource for FixedSource {
         &self,
         query: &str,
         _intent: Intent,
+        _region: &Region,
         _limit: usize,
     ) -> Result<Vec<Meme>, BoxError> {
         Ok(vec![Meme {
             title: format!("{query} meme"),
             url: format!("https://memes.example/{}.gif", query.replace(' ', "-")),
             source: "fixed".into(),
+            meaning: None,
         }])
     }
 }
@@ -119,7 +135,13 @@ impl MemeSource for BrokenSource {
     fn name(&self) -> &'static str {
         "broken"
     }
-    async fn search(&self, _: &str, _: Intent, _: usize) -> Result<Vec<Meme>, BoxError> {
+    async fn search(
+        &self,
+        _: &str,
+        _: Intent,
+        _region: &Region,
+        _: usize,
+    ) -> Result<Vec<Meme>, BoxError> {
         Err("down".into())
     }
 }
@@ -140,6 +162,7 @@ async fn frank_chat_gets_slang_and_memes() {
     let engine = MemeEngine::builder(jev.clone(), model.clone())
         .source(Arc::new(BrokenSource))
         .source(Arc::new(FixedSource))
+        .region(Region::global())
         .build();
 
     let out = engine
@@ -181,6 +204,7 @@ async fn serious_chat_is_left_alone_without_calling_the_model() {
     let model = model("should never be used");
     let engine = MemeEngine::builder(jev(0.9, 0.9, 0.9, "bad_news"), model.clone())
         .source(Arc::new(FixedSource))
+        .region(Region::global())
         .build();
     let reply = "I'm really sorry about your dad. Take all the time you need.";
     let out = engine
@@ -199,6 +223,7 @@ async fn rewrite_that_mangles_code_keeps_original_wording_but_still_memes() {
         model("just run the tests bestie [[meme:1]]"),
     )
     .source(Arc::new(FixedSource))
+    .region(Region::global())
     .build();
     let reply = "Run `cargo test --all` and you're set.";
     let out = engine.process(&chat(), reply).await;
@@ -217,7 +242,9 @@ async fn jev_failure_fails_open() {
             Err("503".into())
         }
     }
-    let engine = MemeEngine::builder(Arc::new(Down), model("x")).build();
+    let engine = MemeEngine::builder(Arc::new(Down), model("x"))
+        .region(Region::global())
+        .build();
     let out = engine.process(&chat(), "original").await;
     assert_eq!(out.reply, "original");
     assert!(out.skipped.unwrap().contains("jev reading failed"));
@@ -228,6 +255,7 @@ async fn light_tier_rewrites_without_fetching_memes() {
     let model = model("ngl that's done");
     let engine = MemeEngine::builder(jev(0.5, 0.2, 0.0, "grind"), model.clone())
         .source(Arc::new(FixedSource))
+        .region(Region::global())
         .build();
     let out = engine.process(&chat(), "That's done.").await;
     assert_eq!(out.rating.unwrap().tier, Tier::Light);
@@ -235,4 +263,194 @@ async fn light_tier_rewrites_without_fetching_memes() {
     assert!(out.remix.unwrap().memes.is_empty());
     // Only the rewrite call, no plan call.
     assert_eq!(model.calls.lock().unwrap().len(), 1);
+}
+
+// ---- India region and the learning slang index -----------------------------
+
+use tinymemes::slang::Discovered;
+use tinymemes::{IndexPolicy, SlangIndex, SlangResearcher};
+
+struct ScriptedResearcher {
+    queries: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl SlangResearcher for ScriptedResearcher {
+    async fn research(&self, query: &str) -> Result<Vec<Discovered>, BoxError> {
+        let n = {
+            let mut q = self.queries.lock().unwrap();
+            q.push(query.to_owned());
+            q.len()
+        };
+        Ok(vec![Discovered {
+            term: format!("naya lingo {n}"),
+            meaning: "fresh hype word".into(),
+            min_tier: Tier::Spicy,
+            source_url: format!("https://slang.example/{n}"),
+            verified: None,
+        }])
+    }
+}
+
+/// Records the rewrite prompt so tests can see what the model was offered.
+struct PromptSpy {
+    rewrite: String,
+    systems: Mutex<Vec<String>>,
+    users: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl ChatModel for PromptSpy {
+    async fn complete(&self, system: &str, user: &str) -> Result<String, BoxError> {
+        self.systems.lock().unwrap().push(system.to_owned());
+        self.users.lock().unwrap().push(user.to_owned());
+        if system.contains("meme searches") {
+            Ok(r#"{"queries": ["moye moye"]}"#.into())
+        } else {
+            Ok(self.rewrite.clone())
+        }
+    }
+}
+
+fn spy(rewrite: &str) -> Arc<PromptSpy> {
+    Arc::new(PromptSpy {
+        rewrite: rewrite.into(),
+        systems: Mutex::new(Vec::new()),
+        users: Mutex::new(Vec::new()),
+    })
+}
+
+#[tokio::test]
+async fn india_uses_catalog_memes_with_meanings_and_hinglish_slang() {
+    let model = spy(
+        "Arre yaar, moye moye ho gaya 😅\n[[meme:1]]\nBuild fail hua because `serde` missing tha.",
+    );
+    let engine_memes =
+        MemeEngine::builder(jev(0.9, 0.9, 0.0, "frustration"), model.clone()).build();
+
+    let out = engine_memes
+        .process(
+            &[Turn::user("bhai build phir se fail ho gaya 😭")],
+            "The build failed because `serde` is missing.",
+        )
+        .await;
+    let remix = out.remix.unwrap();
+    assert!(remix.rewrite_kept);
+    assert_eq!(remix.memes[0].source, "catalog");
+    assert!(remix.memes[0].url.starts_with("https://i.imgflip.com/"));
+    assert!(remix.slang_used.contains(&"yaar".to_owned()));
+    assert!(remix.slang_used.contains(&"arre".to_owned()));
+
+    let systems = model.systems.lock().unwrap();
+    let rewrite_system = systems.iter().find(|s| s.contains("Hard rules")).unwrap();
+    assert!(rewrite_system.contains("Hinglish"));
+    assert!(rewrite_system.contains("- yaar:"));
+    let users = model.users.lock().unwrap();
+    let rewrite_user = users.iter().find(|u| u.contains("Original reply")).unwrap();
+    // The model is told what each candidate meme means, and what the user wrote.
+    assert!(
+        rewrite_user.contains("(posted when plans fall apart"),
+        "{rewrite_user}"
+    );
+    assert!(rewrite_user.contains("bhai build phir se fail"));
+}
+
+#[tokio::test]
+async fn gaali_in_rewrite_is_rejected() {
+    let engine =
+        MemeEngine::builder(jev(0.9, 0.9, 0.0, "banter"), model("bc kya scene hai 😂")).build();
+    let out = engine.process(&chat(), "What's going on?").await;
+    let remix = out.remix.unwrap();
+    assert!(!remix.rewrite_kept);
+    assert!(out.reply.starts_with("What's going on?"));
+}
+
+#[tokio::test]
+async fn slang_index_grows_with_traffic_then_stops_searching() {
+    let index = Arc::new(SlangIndex::new(IndexPolicy {
+        min_web_terms: 2,
+        ..IndexPolicy::default()
+    }));
+    let researcher = Arc::new(ScriptedResearcher {
+        queries: Mutex::new(Vec::new()),
+    });
+    let model = spy("bawaal ho gaya, naya lingo 1");
+    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "celebration"), model.clone())
+        .slang_index(index.clone())
+        .researcher(researcher.clone())
+        .build();
+    let before = index.len("IN");
+
+    let first = engine.process(&chat(), "Shipped.").await;
+    assert_eq!(first.learned.as_ref().unwrap().added, 1);
+    // The freshly learned term is offered in the very same rewrite.
+    assert!(
+        first
+            .remix
+            .unwrap()
+            .slang_offered
+            .contains(&"naya lingo 1".to_owned())
+    );
+
+    let second = engine.process(&chat(), "Shipped again.").await;
+    assert_eq!(second.learned.as_ref().unwrap().added, 1);
+    // Bucket now holds two web terms: no more searching until refresh.
+    let third = engine.process(&chat(), "And again.").await;
+    assert!(third.learned.is_none());
+
+    let queries = researcher.queries.lock().unwrap();
+    assert_eq!(queries.len(), 2);
+    assert_ne!(queries[0], queries[1]);
+    assert!(queries[0].contains("celebrating a win"));
+    assert_eq!(index.len("IN"), before + 2);
+
+    // Persisted snapshot carries the learned terms and their usage.
+    let restored = SlangIndex::from_json(&index.to_json(), IndexPolicy::default()).unwrap();
+    assert_eq!(restored.len("IN"), before + 2);
+    assert!(index.to_json().contains("\"used\": 3"));
+}
+
+#[tokio::test]
+async fn failing_researcher_does_not_block_the_reply() {
+    struct Down;
+    #[async_trait]
+    impl SlangResearcher for Down {
+        async fn research(&self, _: &str) -> Result<Vec<Discovered>, BoxError> {
+            Err("search down".into())
+        }
+    }
+    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "banter"), model("lol sahi hai"))
+        .researcher(Arc::new(Down))
+        .build();
+    let out = engine.process(&chat(), "Fair point.").await;
+    assert!(out.learned.is_none());
+    assert_eq!(out.reply.lines().next().unwrap(), "lol sahi hai");
+}
+
+#[tokio::test]
+async fn jev_verification_drops_terms_it_does_not_believe() {
+    struct Mixed;
+    #[async_trait]
+    impl SlangResearcher for Mixed {
+        async fn research(&self, _: &str) -> Result<Vec<Discovered>, BoxError> {
+            let d = |term: &str| Discovered {
+                term: term.into(),
+                meaning: "hype".into(),
+                min_tier: Tier::Spicy,
+                source_url: "https://slang.example/x".into(),
+                verified: None,
+            };
+            Ok(vec![d("full bawaal"), d("fake slang")])
+        }
+    }
+    let index = Arc::new(SlangIndex::new(IndexPolicy::default()));
+    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "celebration"), model("bawaal"))
+        .slang_index(index.clone())
+        .researcher(Arc::new(Mixed))
+        .build();
+    let out = engine.process(&chat(), "Shipped.").await;
+    let learned = out.learned.unwrap();
+    assert_eq!((learned.added, learned.failed_verification), (1, 1));
+    assert!(index.to_json().contains("full bawaal"));
+    assert!(!index.to_json().contains("fake slang"));
 }

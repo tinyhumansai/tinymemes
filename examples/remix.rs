@@ -6,6 +6,9 @@
 //! OPENROUTER_API_KEY=… cargo run --example remix -- chat.json
 //! ```
 //!
+//! The slang index is saved to `$TINYMEMES_SLANG_INDEX` (default
+//! `slang-index.json`) and grows with each run.
+//!
 //! `chat.json` is `{"conversation": [{"role": "user", "text": "…"}], "reply": "…"}`.
 //! Spends one Jev call and up to two chat-model calls.
 
@@ -14,8 +17,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tinyinference_decisions::{Client, ClientConfig};
 use tinymemes::model::OpenAiCompatible;
+use tinymemes::slang::OpenRouterWebResearcher;
 use tinymemes::source::{Giphy, Imgflip, Tenor};
-use tinymemes::{MemeEngine, Turn};
+use tinymemes::{IndexPolicy, MemeEngine, SlangIndex, Turn};
 
 #[derive(Deserialize)]
 struct Input {
@@ -30,10 +34,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("TINYMEMES_MODEL").unwrap_or_else(|_| "google/gemini-2.5-flash".to_owned());
     let http = reqwest::Client::new();
 
+    // The slang index persists between runs, so it grows with every query.
+    let index_path =
+        std::env::var("TINYMEMES_SLANG_INDEX").unwrap_or_else(|_| "slang-index.json".to_owned());
+    let index = Arc::new(match std::fs::read_to_string(&index_path) {
+        Ok(json) => SlangIndex::from_json(&json, IndexPolicy::default())?,
+        Err(_) => SlangIndex::new(IndexPolicy::default()),
+    });
+
     let mut builder = MemeEngine::builder(
         Arc::new(Client::new(ClientConfig::openrouter(&key))?),
         Arc::new(OpenAiCompatible::openrouter(http.clone(), &key, model)),
     )
+    .slang_index(index.clone())
+    .researcher(Arc::new(OpenRouterWebResearcher::new(
+        http.clone(),
+        &key,
+        "google/gemini-2.5-flash",
+    )))
     .source(Arc::new(Imgflip::new(http.clone())));
     if let Ok(k) = std::env::var("GIPHY_API_KEY") {
         builder = builder.source(Arc::new(Giphy::new(http.clone(), k)));
@@ -81,6 +99,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             remix.rewrite_kept
         );
     }
+    if let Some(learned) = &out.learned {
+        eprintln!(
+            "learned: +{} new, {} corroborated, {} rejected, {} failed Jev check <- {:?} (index now {} terms)",
+            learned.added,
+            learned.corroborated,
+            learned.rejected,
+            learned.failed_verification,
+            learned.query,
+            index.len("IN"),
+        );
+    }
+    if let Some(remix) = &out.remix {
+        eprintln!("slang used: {:?}", remix.slang_used);
+    }
+    std::fs::write(&index_path, index.to_json())?;
     if let Some(why) = &out.skipped {
         eprintln!("skipped: {why}");
     }

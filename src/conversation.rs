@@ -60,7 +60,7 @@ impl Default for Window {
 }
 
 /// Build the shared Jev state: the windowed conversation plus the reply being remixed.
-pub(crate) fn jev_state(conversation: &[Turn], reply: &str, window: Window) -> Value {
+pub(crate) fn jev_state(conversation: &[Turn], reply: &str, region: &str, window: Window) -> Value {
     let start = conversation.len().saturating_sub(window.max_turns);
     let turns: Vec<Value> = conversation[start..]
         .iter()
@@ -69,6 +69,7 @@ pub(crate) fn jev_state(conversation: &[Turn], reply: &str, window: Window) -> V
     json!({
         "conversation": turns,
         "assistant_reply": clip(reply, window.max_chars_per_turn * 2),
+        "audience_region": region,
     })
 }
 
@@ -91,6 +92,7 @@ mod tests {
         let state = jev_state(
             &convo,
             "reply",
+            "India",
             Window {
                 max_turns: 3,
                 max_chars_per_turn: 10,

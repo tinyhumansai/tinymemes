@@ -75,6 +75,7 @@ pub struct Reading {
 pub fn reading_request(
     conversation: &[Turn],
     reply: &str,
+    region: &str,
     window: Window,
     openjev: bool,
 ) -> EvaluationRequest {
@@ -130,7 +131,7 @@ pub fn reading_request(
             }),
         ),
     ]);
-    let state = jev_state(conversation, reply, window);
+    let state = jev_state(conversation, reply, region, window);
     if openjev {
         EvaluationRequest::openjev(state, questions)
     } else {
@@ -171,10 +172,11 @@ pub async fn read(
     jev: &dyn Evaluator,
     conversation: &[Turn],
     reply: &str,
+    region: &str,
     window: Window,
     openjev: bool,
 ) -> Result<Reading> {
-    let request = reading_request(conversation, reply, window, openjev);
+    let request = reading_request(conversation, reply, region, window, openjev);
     let response = jev.evaluate(&request).await.map_err(Error::Reading)?;
     parse_reading(&response)
 }

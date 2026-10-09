@@ -44,9 +44,12 @@ pub mod intent;
 pub mod model;
 pub mod rating;
 pub mod reading;
+pub mod region;
+pub mod slang;
 pub mod source;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -56,6 +59,8 @@ pub use error::{BoxError, Error, Result};
 pub use intent::Intent;
 pub use rating::{Rating, RatingPolicy, Tier};
 pub use reading::{Evaluator, Reading};
+pub use region::{CatalogMeme, Region, SlangTerm};
+pub use slang::{IndexPolicy, LearnReport, SlangIndex, SlangResearcher};
 pub use source::{Meme, MemeSource};
 
 /// Everything the engine decided about one reply.
@@ -69,6 +74,8 @@ pub struct Outcome {
     pub rating: Option<Rating>,
     /// The remix, when the agent ran.
     pub remix: Option<Remix>,
+    /// Slang research that ran for this reply, if any.
+    pub learned: Option<LearnReport>,
     /// Why the original reply was returned unchanged, if it was.
     pub skipped: Option<String>,
 }
@@ -81,6 +88,8 @@ pub struct MemeEngine {
     policy: RatingPolicy,
     window: Window,
     openjev: bool,
+    researcher: Option<Arc<dyn SlangResearcher>>,
+    learn_inline: Option<Duration>,
 }
 
 impl std::fmt::Debug for MemeEngine {
@@ -100,10 +109,37 @@ impl MemeEngine {
             jev,
             model,
             sources: Vec::new(),
+            region: Region::default(),
+            index: None,
+            researcher: None,
+            learn_inline: Some(Duration::from_secs(25)),
             policy: RatingPolicy::default(),
             window: Window::default(),
             openjev: false,
         }
+    }
+
+    /// The slang index, to snapshot or inspect.
+    pub fn slang_index(&self) -> &Arc<SlangIndex> {
+        self.agent.index()
+    }
+
+    /// Run one slang research step for `intent` if its bucket needs it.
+    /// Hosts that turn off inline learning can call this in the background.
+    pub async fn learn_slang(&self, intent: Intent) -> Result<Option<LearnReport>> {
+        let Some(researcher) = &self.researcher else {
+            return Ok(None);
+        };
+        self.agent
+            .index()
+            .learn(
+                researcher.as_ref(),
+                Some((self.jev.as_ref(), self.openjev)),
+                self.agent.region(),
+                intent,
+            )
+            .await
+            .map_err(Error::Research)
     }
 
     /// Read and rate only; no rewrite. Useful for hosts that want the signal.
@@ -112,6 +148,7 @@ impl MemeEngine {
             self.jev.as_ref(),
             conversation,
             reply,
+            &self.agent.region().name,
             self.window,
             self.openjev,
         )
@@ -139,18 +176,43 @@ impl MemeEngine {
                 reading: Some(reading),
                 rating: Some(rating),
                 remix: None,
+                learned: None,
                 skipped: Some(format!(
                     "rating {} is below the remix threshold",
                     rating.score
                 )),
             });
         }
-        let remix = self.agent.run(reply, &reading, rating).await?;
+        let last_user = conversation
+            .iter()
+            .rev()
+            .find(|t| t.role == Role::User)
+            .map(|t| t.text.as_str());
+        let learned = match (self.learn_inline, &self.researcher) {
+            (Some(budget), Some(_)) => {
+                match tokio::time::timeout(budget, self.learn_slang(reading.reply_intent)).await {
+                    Ok(Ok(report)) => report,
+                    Ok(Err(e)) => {
+                        tracing::debug!(error = %e, "[tinymemes] slang research failed; using current index");
+                        None
+                    }
+                    Err(_) => {
+                        tracing::debug!(
+                            "[tinymemes] slang research timed out; using current index"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        let remix = self.agent.run(reply, last_user, &reading, rating).await?;
         Ok(Outcome {
             reply: remix.reply.clone(),
             reading: Some(reading),
             rating: Some(rating),
             remix: Some(remix),
+            learned,
             skipped: None,
         })
     }
@@ -167,6 +229,7 @@ impl MemeEngine {
                     reading: None,
                     rating: None,
                     remix: None,
+                    learned: None,
                     skipped: Some(e.to_string()),
                 }
             }
@@ -181,6 +244,10 @@ pub struct MemeEngineBuilder {
     jev: Arc<dyn Evaluator>,
     model: Arc<dyn ChatModel>,
     sources: Vec<Arc<dyn MemeSource>>,
+    region: Region,
+    index: Option<Arc<SlangIndex>>,
+    researcher: Option<Arc<dyn SlangResearcher>>,
+    learn_inline: Option<Duration>,
     policy: RatingPolicy,
     window: Window,
     openjev: bool,
@@ -211,6 +278,33 @@ impl MemeEngineBuilder {
         self
     }
 
+    /// Set the region pack (slang, meme catalog, blocklist). Defaults to
+    /// [`Region::india`].
+    pub fn region(mut self, region: Region) -> Self {
+        self.region = region;
+        self
+    }
+
+    /// Share a slang index (e.g. one restored from a snapshot). Defaults to a
+    /// fresh in-memory index seeded from the region.
+    pub fn slang_index(mut self, index: Arc<SlangIndex>) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    /// Grow the slang index with web research.
+    pub fn researcher(mut self, researcher: Arc<dyn SlangResearcher>) -> Self {
+        self.researcher = Some(researcher);
+        self
+    }
+
+    /// How long a reply may wait for one research step (default 25s). `None`
+    /// never researches inline; call [`MemeEngine::learn_slang`] yourself.
+    pub fn learn_inline(mut self, budget: Option<Duration>) -> Self {
+        self.learn_inline = budget;
+        self
+    }
+
     /// Use OpenJEV's `openjev` model id instead of `jev-latest`.
     pub fn openjev(mut self, on: bool) -> Self {
         self.openjev = on;
@@ -221,10 +315,17 @@ impl MemeEngineBuilder {
     pub fn build(self) -> MemeEngine {
         MemeEngine {
             jev: self.jev,
-            agent: SlangAgent::new(self.model, self.sources),
+            agent: SlangAgent::new(
+                self.model,
+                self.sources,
+                self.region,
+                self.index.unwrap_or_default(),
+            ),
             policy: self.policy,
             window: self.window,
             openjev: self.openjev,
+            researcher: self.researcher,
+            learn_inline: self.learn_inline,
         }
     }
 }

@@ -1,12 +1,12 @@
 //! Turn a Jev reading into a 0–10 meme rating. Pure policy: no I/O.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::intent::Intent;
 use crate::reading::Reading;
 
 /// How hard the reply gets remixed.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
     /// Leave the reply alone.
@@ -25,17 +25,16 @@ impl Tier {
         self != Tier::Off
     }
 
-    /// Style instruction handed to the slang agent.
+    /// Intensity instruction handed to the slang agent. The words themselves
+    /// come from the region's lexicon.
     pub fn style(self) -> &'static str {
         match self {
             Tier::Off => "Do not change the reply.",
             Tier::Light => {
-                "Keep the reply mostly as written; swap in a few casual phrases (e.g. 'ngl', 'lowkey', 'tbh'). \
-                 Stay clear and readable."
+                "Keep the reply mostly as written; swap in two or three casual words. Stay clear and readable."
             }
             Tier::Spicy => {
-                "Rewrite in a casual, slangy internet voice (e.g. 'no cap', 'it's giving', 'bet', 'fr'). \
-                 Keep it punchy and fun but every point must still land."
+                "Rewrite in a casual, slangy voice. Keep it punchy and fun but every point must still land."
             }
             Tier::Unhinged => {
                 "Go full group-chat: heavy slang, playful exaggeration, a bit of roasting if the user is roasting. \

@@ -15,6 +15,9 @@ pub enum Error {
     /// The chat model behind the slang agent failed.
     #[error("slang agent model call failed: {0}")]
     Model(#[source] BoxError),
+    /// Slang web research failed.
+    #[error("slang research failed: {0}")]
+    Research(#[source] BoxError),
     /// The rewrite dropped content that must survive verbatim (code, links).
     #[error("rewrite dropped protected content")]
     ProtectedContentLost,

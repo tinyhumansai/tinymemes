@@ -71,6 +71,20 @@ impl Intent {
         }
     }
 
+    /// Short phrase used in slang research queries.
+    pub fn phrase(self) -> &'static str {
+        match self {
+            Intent::Celebration => "celebrating a win",
+            Intent::Frustration => "being frustrated or annoyed",
+            Intent::Confusion => "being confused",
+            Intent::Banter => "teasing friends and joking around",
+            Intent::Grind => "working hard and getting things done",
+            Intent::BadNews => "something going wrong or a letdown",
+            Intent::Curiosity => "being curious or impressed",
+            Intent::Gratitude => "thanking someone",
+        }
+    }
+
     /// Imgflip template names that usually fit this mood. Matched by
     /// case-insensitive substring, so a renamed template just stops matching.
     pub fn template_hints(self) -> &'static [&'static str] {

@@ -7,6 +7,7 @@ use tokio::sync::OnceCell;
 
 use crate::error::BoxError;
 use crate::intent::Intent;
+use crate::region::{Region, tokens};
 
 /// One meme image the agent may insert.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -17,6 +18,10 @@ pub struct Meme {
     pub url: String,
     /// Source name, e.g. `imgflip`.
     pub source: String,
+    /// What the meme means and when people post it, when the source knows.
+    /// Shown to the model so it places the meme where the joke lands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meaning: Option<String>,
 }
 
 /// A searchable meme catalog.
@@ -25,11 +30,13 @@ pub trait MemeSource: Send + Sync {
     /// Short stable name for logs and [`Meme::source`].
     fn name(&self) -> &'static str;
 
-    /// Up to `limit` memes for `query`, with `intent` as a mood hint.
+    /// Up to `limit` memes for `query`, with `intent` as a mood hint and
+    /// `region` for localized results.
     async fn search(
         &self,
         query: &str,
         intent: Intent,
+        region: &Region,
         limit: usize,
     ) -> Result<Vec<Meme>, BoxError>;
 }
@@ -96,6 +103,7 @@ impl Imgflip {
                         title: t.name,
                         url: t.url,
                         source: "imgflip".to_owned(),
+                        meaning: None,
                     })
                     .collect())
             })
@@ -114,6 +122,7 @@ impl MemeSource for Imgflip {
         &self,
         query: &str,
         intent: Intent,
+        _region: &Region,
         limit: usize,
     ) -> Result<Vec<Meme>, BoxError> {
         let templates = self.templates().await?;
@@ -165,6 +174,7 @@ impl MemeSource for Giphy {
         &self,
         query: &str,
         _intent: Intent,
+        region: &Region,
         limit: usize,
     ) -> Result<Vec<Meme>, BoxError> {
         #[derive(Deserialize)]
@@ -185,15 +195,19 @@ impl MemeSource for Giphy {
             url: String,
         }
         let limit = limit.to_string();
+        let mut params = vec![
+            ("api_key", self.api_key.as_str()),
+            ("q", query),
+            ("limit", limit.as_str()),
+            ("rating", "pg-13"),
+        ];
+        if let Some(lang) = &region.giphy_lang {
+            params.push(("lang", lang.as_str()));
+        }
         let resp: Resp = self
             .http
             .get("https://api.giphy.com/v1/gifs/search")
-            .query(&[
-                ("api_key", self.api_key.as_str()),
-                ("q", query),
-                ("limit", limit.as_str()),
-                ("rating", "pg-13"),
-            ])
+            .query(&params)
             .send()
             .await?
             .error_for_status()?
@@ -206,6 +220,7 @@ impl MemeSource for Giphy {
                 title: g.title,
                 url: g.images.downsized.url,
                 source: "giphy".to_owned(),
+                meaning: None,
             })
             .collect())
     }
@@ -238,6 +253,7 @@ impl MemeSource for Tenor {
         &self,
         query: &str,
         _intent: Intent,
+        region: &Region,
         limit: usize,
     ) -> Result<Vec<Meme>, BoxError> {
         #[derive(Deserialize)]
@@ -258,16 +274,23 @@ impl MemeSource for Tenor {
             url: String,
         }
         let limit = limit.to_string();
+        let mut params = vec![
+            ("key", self.api_key.as_str()),
+            ("q", query),
+            ("limit", limit.as_str()),
+            ("contentfilter", "medium"),
+            ("media_filter", "tinygif"),
+        ];
+        if let Some(locale) = &region.tenor_locale {
+            params.push(("locale", locale.as_str()));
+        }
+        if region.code.len() == 2 && region.code != "XX" {
+            params.push(("country", region.code.as_str()));
+        }
         let resp: Resp = self
             .http
             .get("https://tenor.googleapis.com/v2/search")
-            .query(&[
-                ("key", self.api_key.as_str()),
-                ("q", query),
-                ("limit", limit.as_str()),
-                ("contentfilter", "medium"),
-                ("media_filter", "tinygif"),
-            ])
+            .query(&params)
             .send()
             .await?
             .error_for_status()?
@@ -280,15 +303,10 @@ impl MemeSource for Tenor {
                 title: i.content_description,
                 url: i.media_formats.tinygif.url,
                 source: "tenor".to_owned(),
+                meaning: None,
             })
             .collect())
     }
-}
-
-fn tokens(text: &str) -> impl Iterator<Item = String> + '_ {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .map(str::to_lowercase)
 }
 
 #[cfg(test)]
@@ -300,6 +318,7 @@ mod tests {
             title: name.to_owned(),
             url: format!("https://i.imgflip.com/{}.jpg", name.len()),
             source: "imgflip".into(),
+            meaning: None,
         }
     }
 
@@ -312,7 +331,12 @@ mod tests {
             template("Two Buttons"),
         ]);
         let hits = src
-            .search("everything is fine", Intent::Frustration, 5)
+            .search(
+                "everything is fine",
+                Intent::Frustration,
+                &Region::global(),
+                5,
+            )
             .await
             .unwrap();
         let names: Vec<_> = hits.iter().map(|m| m.title.as_str()).collect();
