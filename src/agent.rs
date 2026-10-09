@@ -37,8 +37,22 @@ pub struct Remix {
     /// Indexed terms found in the final reply.
     pub slang_used: Vec<String>,
     /// False when the slang rewrite was discarded (it dropped code or links,
-    /// ballooned, or used a blocklisted word) and the original wording was kept.
+    /// ballooned, or added a blocklisted word) and the original wording was kept.
     pub rewrite_kept: bool,
+    /// Whether the reply was rewritten or only had a meme attached.
+    pub mode: RemixMode,
+    /// Lines removed from the rewrite because it repeated them.
+    pub duplicates_removed: usize,
+}
+
+/// How a reply was remixed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemixMode {
+    /// The rewrite LLM restyled the reply.
+    Rewrite,
+    /// The reply already matched the user; only a meme was attached.
+    MemeOnly,
 }
 
 /// Plans, fetches, rewrites, and inserts.
@@ -100,6 +114,7 @@ impl SlangAgent {
         conversation: &[Turn],
         reading: &Reading,
         rating: Rating,
+        meme_only: bool,
     ) -> Result<Remix> {
         let last_user = conversation
             .iter()
@@ -164,6 +179,24 @@ impl SlangAgent {
             }
         };
 
+        // Meme-only mode: the agent's reply already matches the user's register,
+        // so a rewrite would add little and risk artifacts. Keep the wording and
+        // only attach Jev's meme.
+        if meme_only {
+            let (reply, memes) = attach_meme(reply, &candidates, rating.max_memes);
+            let slang_used = self.index.record_used(&self.region.code, &reply);
+            return Ok(Remix {
+                reply,
+                memes,
+                queries,
+                slang_offered: Vec::new(),
+                slang_used,
+                rewrite_kept: true,
+                mode: RemixMode::MemeOnly,
+                duplicates_removed: 0,
+            });
+        }
+
         // Slang follows the user's language: the regional index for Hinglish or
         // Devanagari (or when Jev did not say), English internet slang for an
         // English writer, and nothing for any other language.
@@ -192,21 +225,31 @@ impl SlangAgent {
             .await
             .map_err(Error::Model)?;
         let rewritten = strip_wrapping_fence(rewritten.trim());
+        // Repair, don't discard: a line the rewrite copied twice loses its extra copies.
+        let (rewritten, duplicates_removed) = repair_duplicates(reply, rewritten);
+        if duplicates_removed > 0 {
+            tracing::debug!(
+                duplicates_removed,
+                "[tinymemes] removed duplicated lines from rewrite"
+            );
+        }
 
-        let blocked = self.region.blocked_words(rewritten);
-        let (text, rewrite_kept) = if !blocked.is_empty() {
+        // Only gaali the rewrite adds counts; words already in the agent's reply
+        // are the agent's, and sending the original would not remove them.
+        let added = self.region.blocked_added(reply, &rewritten);
+        let (text, rewrite_kept) = if !added.is_empty() {
             tracing::warn!(
-                ?blocked,
-                "[tinymemes] rewrite used blocklisted words; keeping original wording"
+                ?added,
+                "[tinymemes] rewrite added blocklisted words; keeping original wording"
             );
             (reply.to_owned(), false)
-        } else if !preserves_protected(reply, rewritten) || !within_length(reply, rewritten) {
+        } else if !preserves_protected(reply, &rewritten) || !within_length(reply, &rewritten) {
             tracing::warn!(
                 "[tinymemes] rewrite dropped protected content or ballooned; keeping original wording"
             );
             (reply.to_owned(), false)
         } else {
-            (rewritten.to_owned(), true)
+            (rewritten, true)
         };
         let (reply, memes) = resolve_markers(&text, &candidates, rating.max_memes);
         let slang_used = self.index.record_used(&self.region.code, &reply);
@@ -218,6 +261,8 @@ impl SlangAgent {
             slang_offered,
             slang_used,
             rewrite_kept,
+            mode: RemixMode::Rewrite,
+            duplicates_removed,
         })
     }
 
@@ -352,6 +397,117 @@ fn rewrite_user(
     out.push_str("Original reply:\n");
     out.push_str(reply);
     out
+}
+
+/// Put the first allowed meme after the reply's first paragraph (or at the
+/// end of a one-paragraph reply). Used when the wording is kept as is.
+pub(crate) fn attach_meme(reply: &str, candidates: &[Meme], max: usize) -> (String, Vec<Meme>) {
+    let Some(meme) = candidates.first().filter(|_| max > 0) else {
+        return (reply.to_owned(), Vec::new());
+    };
+    let reply = reply.trim_end();
+    let out = match reply.find("\n\n") {
+        Some(cut) => format!(
+            "{}{}{}",
+            &reply[..cut],
+            image(meme),
+            reply[cut..].trim_start()
+        ),
+        None => format!("{reply}{}", image(meme)),
+    };
+    (collapse_blank_lines(&out), vec![meme.clone()])
+}
+
+/// Words of a line, lowercased, for comparing lines that differ only in
+/// punctuation, emoji, bullets, or casing.
+fn line_words(line: &str) -> Vec<String> {
+    crate::region::tokens(line).collect()
+}
+
+/// How much of the shorter line's words the longer one contains.
+fn overlap(a: &[String], b: &[String]) -> f64 {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    if short.is_empty() {
+        return 0.0;
+    }
+    let hits = short.iter().filter(|w| long.contains(w)).count();
+    hits as f64 / short.len() as f64
+}
+
+/// Shared words over all distinct words of both lines.
+fn jaccard(a: &[String], b: &[String]) -> f64 {
+    let mut all: Vec<&String> = a.iter().chain(b.iter()).collect();
+    all.sort();
+    all.dedup();
+    if all.is_empty() {
+        return 0.0;
+    }
+    let shared = all
+        .iter()
+        .filter(|w| a.contains(w) && b.contains(w))
+        .count();
+    shared as f64 / all.len() as f64
+}
+
+const DUP_MIN_WORDS: usize = 6;
+const DUP_OVERLAP: f64 = 0.8;
+
+/// Remove lines the rewrite repeated. A substantial line (6+ words) that
+/// near-copies another rewrite line is a duplicate when the original did not
+/// have it twice; of the copies, the one closest to an original line is kept.
+pub(crate) fn repair_duplicates(original: &str, rewritten: &str) -> (String, usize) {
+    let orig: Vec<Vec<String>> = original
+        .lines()
+        .map(line_words)
+        .filter(|w| w.len() >= DUP_MIN_WORDS)
+        .collect();
+    let lines: Vec<&str> = rewritten.lines().collect();
+    let words: Vec<Vec<String>> = lines.iter().map(|l| line_words(l)).collect();
+    // How close each rewrite line is to its best-matching original line.
+    // Jaccard, so extra words count against a copy: of two near-copies, the
+    // one that mirrors the original line most exactly is kept.
+    let closeness: Vec<f64> = words
+        .iter()
+        .map(|w| orig.iter().map(|o| jaccard(w, o)).fold(0.0, f64::max))
+        .collect();
+    let mut drop = vec![false; lines.len()];
+    for i in 0..lines.len() {
+        if drop[i] || words[i].len() < DUP_MIN_WORDS {
+            continue;
+        }
+        for j in (i + 1)..lines.len() {
+            if drop[j]
+                || words[j].len() < DUP_MIN_WORDS
+                || overlap(&words[i], &words[j]) < DUP_OVERLAP
+            {
+                continue;
+            }
+            // The original repeating it too means the repeat is intended.
+            let in_original = orig
+                .iter()
+                .filter(|o| overlap(o, &words[i]) >= DUP_OVERLAP)
+                .count();
+            if in_original >= 2 {
+                continue;
+            }
+            if closeness[j] > closeness[i] {
+                drop[i] = true;
+                break;
+            }
+            drop[j] = true;
+        }
+    }
+    let removed = drop.iter().filter(|d| **d).count();
+    if removed == 0 {
+        return (rewritten.to_owned(), 0);
+    }
+    let kept: Vec<&str> = lines
+        .iter()
+        .zip(&drop)
+        .filter(|(_, d)| !**d)
+        .map(|(l, _)| *l)
+        .collect();
+    (collapse_blank_lines(&kept.join("\n")), removed)
 }
 
 /// Replace `[[meme:N]]` markers with markdown images, enforcing `max` and

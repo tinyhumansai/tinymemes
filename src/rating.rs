@@ -62,6 +62,9 @@ pub struct RatingPolicy {
     /// No meme when one was sent in this many most recent assistant replies.
     /// 0 disables the cooldown.
     pub meme_cooldown_turns: usize,
+    /// When Jev's `reply_matches_user` is at least this, skip the rewrite and
+    /// only attach a meme (the agent already sounds like the user).
+    pub meme_only_above: f64,
 }
 
 impl Default for RatingPolicy {
@@ -74,6 +77,7 @@ impl Default for RatingPolicy {
             spicy_memes: 0,
             unhinged_memes: 1,
             meme_cooldown_turns: 3,
+            meme_only_above: 0.6,
         }
     }
 }

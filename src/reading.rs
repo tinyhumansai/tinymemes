@@ -22,6 +22,7 @@ const PLAYFUL: &str = "playful";
 const SERIOUS: &str = "serious";
 const SLANG_BEST: &str = "slang_best";
 const SLANG_ENOUGH: &str = "slang_enough";
+const REPLY_MATCHES: &str = "reply_matches_user";
 const USER_LANGUAGE: &str = "user_language";
 const MEME_BEST: &str = "meme_best";
 
@@ -144,6 +145,9 @@ pub struct Reading {
     pub slang_enough: Option<f64>,
     /// The user's language and script. `None` when Jev did not answer.
     pub user_language: Option<UserLanguage>,
+    /// Probability the agent's reply already sounds as casual and slangy as
+    /// the user writes. High means a rewrite would add little.
+    pub reply_matches_user: Option<f64>,
     /// Which catalog meme (if any) fits this reply.
     pub meme: MemePick,
 }
@@ -229,6 +233,16 @@ pub fn reading_request(
             }),
         ),
     ]);
+    questions.insert(
+        REPLY_MATCHES.to_owned(),
+        Question::Noul(Noul {
+            instructions: json!(
+                "`assistant_reply` already sounds as casual, slangy, and playful as the user writes, \
+                 in the user's own language, so restyling it would add little."
+            ),
+            criteria: None,
+        }),
+    );
     questions.insert(
         USER_LANGUAGE.to_owned(),
         Question::Choice(Choice {
@@ -337,6 +351,7 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
             _ => None,
         },
         slang_enough: noul(SLANG_ENOUGH).ok(),
+        reply_matches_user: noul(REPLY_MATCHES).ok(),
         meme: match response.answers.get(MEME_BEST) {
             Some(Answer::Choice(c)) if c.choice == NONE_FIT => MemePick::NoneFit,
             Some(Answer::Choice(c)) => MemePick::Pick(c.choice.clone()),

@@ -280,6 +280,19 @@ impl Region {
             .collect()
     }
 
+    /// Blocklisted words `rewritten` has more of than `original` does.
+    pub fn blocked_added(&self, original: &str, rewritten: &str) -> Vec<String> {
+        let count = |text: &str, word: &str| tokens(text).filter(|t| t == word).count();
+        self.blocklist
+            .iter()
+            .filter(|b| {
+                let b = b.to_lowercase();
+                count(rewritten, &b) > count(original, &b)
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Blocklisted words present in `text`.
     pub fn blocked_words(&self, text: &str) -> Vec<String> {
         let words: Vec<String> = tokens(text).collect();

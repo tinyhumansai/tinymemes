@@ -21,6 +21,7 @@ struct ScriptedJev {
     slang_best: &'static str,
     language: Option<&'static str>,
     meme: Option<&'static str>,
+    matches: Option<f64>,
     seen: Mutex<Option<EvaluationRequest>>,
 }
 
@@ -70,6 +71,12 @@ impl Evaluator for ScriptedJev {
                         .insert(id.clone(), Answer::Noul(NoulAnswer { noul: p }));
                 }
             }
+            if let Some(p) = self.matches {
+                resp.answers.insert(
+                    "reply_matches_user".into(),
+                    Answer::Noul(NoulAnswer { noul: p }),
+                );
+            }
             if let (Some(meme), true) = (self.meme, request.questions.contains_key("meme_best")) {
                 resp.answers.insert("meme_best".into(), choice(meme));
             }
@@ -115,6 +122,7 @@ fn jev_slang(
         slang_best: best,
         language: None,
         meme: None,
+        matches: None,
         seen: Mutex::new(None),
     })
 }
@@ -236,8 +244,9 @@ async fn frank_chat_gets_slang_and_memes() {
             .unwrap()
             .contains("v1.4.0")
     );
-    // Five reading questions, the two slang-fit questions, and the language.
-    assert_eq!(req.questions.len(), 8);
+    // Five reading questions, two slang-fit questions, language, and register match.
+    assert_eq!(req.questions.len(), 9);
+    assert!(req.questions.contains_key("reply_matches_user"));
     assert!(req.questions.contains_key("user_language"));
 }
 
@@ -399,7 +408,7 @@ async fn india_uses_catalog_memes_with_meanings_and_hinglish_slang() {
 }
 
 #[tokio::test]
-async fn gaali_in_rewrite_is_rejected() {
+async fn gaali_added_by_the_rewrite_is_rejected() {
     let engine =
         MemeEngine::builder(jev(0.9, 0.9, 0.0, "banter"), model("bc kya scene hai 😂")).build();
     let out = engine.process(&chat(), "What's going on?").await;
@@ -723,4 +732,43 @@ async fn recently_sent_memes_are_not_offered_to_jev() {
     let q = serde_json::to_string(&req.questions["meme_best"]).unwrap();
     assert!(!q.contains("Moye Moye"));
     assert!(q.contains("Mast Plan Hai"));
+}
+
+#[tokio::test]
+async fn reply_already_in_the_users_register_gets_only_a_meme() {
+    let model = spy("should not be called");
+    let jev = Arc::new(ScriptedJev {
+        matches: Some(0.85),
+        ..Arc::try_unwrap(jev_meme("celebration", "Apna Time Aayega"))
+            .ok()
+            .unwrap()
+    });
+    let engine = MemeEngine::builder(jev, model.clone()).build();
+    let reply = "BHAIII LETS GOOO 🔥 apna time aa gaya!\n\nAb offer letter sign kar de.";
+    let out = engine
+        .process(&[Turn::user("bhai offer aa gaya!!! 🔥")], reply)
+        .await;
+    let remix = out.remix.unwrap();
+    assert_eq!(remix.mode, tinymemes::RemixMode::MemeOnly);
+    assert_eq!(remix.memes[0].title, "Apna Time Aayega");
+    // Wording untouched, meme after the first paragraph, and no LLM call.
+    assert!(
+        out.reply
+            .starts_with("BHAIII LETS GOOO 🔥 apna time aa gaya!")
+    );
+    assert!(out.reply.contains("![Apna Time Aayega]"));
+    assert!(out.reply.ends_with("Ab offer letter sign kar de."));
+    assert!(model.systems.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn gaali_already_in_the_agent_reply_does_not_block_the_remix() {
+    let engine = MemeEngine::builder(
+        jev(0.9, 0.9, 0.0, "banter"),
+        model("arre bc stadium full pagal ho gaya 😂"),
+    )
+    .build();
+    let out = engine.process(&chat(), "Bc the stadium went crazy.").await;
+    assert!(out.remix.unwrap().rewrite_kept);
+    assert!(out.reply.starts_with("arre bc stadium"));
 }

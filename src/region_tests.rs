@@ -35,3 +35,17 @@ fn tier_filters_slang() {
     assert!(r.slang_for(Tier::Light).all(|t| t.min_tier == Tier::Light));
     assert!(r.slang_for(Tier::Unhinged).count() == r.slang.len());
 }
+
+#[test]
+fn only_gaali_the_rewrite_adds_is_flagged() {
+    let r = Region::india();
+    assert!(
+        r.blocked_added("Bc stadium ka scene", "bc stadium ka scene yaar")
+            .is_empty()
+    );
+    assert_eq!(
+        r.blocked_added("stadium ka scene", "bc stadium ka scene"),
+        ["bc"]
+    );
+    assert_eq!(r.blocked_added("bc once", "bc bc twice"), ["bc"]);
+}

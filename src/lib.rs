@@ -56,7 +56,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-pub use agent::{Remix, SlangAgent};
+pub use agent::{Remix, RemixMode, SlangAgent};
 pub use conversation::{Role, SentMeme, Turn, Window, memes_as_text};
 pub use env::{EnvConfig, JevMode};
 pub use error::{BoxError, Error, Result};
@@ -345,9 +345,12 @@ impl MemeEngine {
             }
             _ => None,
         };
+        let meme_only = reading
+            .reply_matches_user
+            .is_some_and(|p| p >= self.policy.meme_only_above);
         let remix = self
             .agent
-            .run(reply, conversation, &reading, rating)
+            .run(reply, conversation, &reading, rating, meme_only)
             .await?;
         Ok(Outcome {
             reply: remix.reply.clone(),
