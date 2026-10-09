@@ -103,6 +103,32 @@ impl std::fmt::Debug for MemeEngine {
 }
 
 impl MemeEngine {
+    /// An engine builder wired to OpenRouter for everything: Jev (System
+    /// One), the rewrite model `model`, web slang research, and Imgflip memes.
+    /// The region defaults to India; add a slang index or other options on the
+    /// returned builder.
+    pub fn openrouter(api_key: &str, model: &str) -> Result<MemeEngineBuilder> {
+        let http = reqwest::Client::new();
+        let jev = tinyinference_decisions::Client::new(
+            tinyinference_decisions::ClientConfig::openrouter(api_key),
+        )
+        .map_err(|e| Error::Reading(Box::new(e)))?;
+        Ok(Self::builder(
+            Arc::new(jev),
+            Arc::new(model::OpenAiCompatible::openrouter(
+                http.clone(),
+                api_key,
+                model,
+            )),
+        )
+        .researcher(Arc::new(slang::OpenRouterWebResearcher::new(
+            http.clone(),
+            api_key,
+            model,
+        )))
+        .source(Arc::new(source::Imgflip::new(http))))
+    }
+
     /// Start building an engine from a Jev evaluator and the agent's chat model.
     pub fn builder(jev: Arc<dyn Evaluator>, model: Arc<dyn ChatModel>) -> MemeEngineBuilder {
         MemeEngineBuilder {
