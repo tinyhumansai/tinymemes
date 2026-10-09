@@ -19,6 +19,7 @@ struct ScriptedJev {
     /// Answer to `slang_enough`; flips after each call when scripted.
     slang_enough: Mutex<Vec<f64>>,
     slang_best: &'static str,
+    language: Option<&'static str>,
     seen: Mutex<Option<EvaluationRequest>>,
 }
 
@@ -68,6 +69,9 @@ impl Evaluator for ScriptedJev {
                         .insert(id.clone(), Answer::Noul(NoulAnswer { noul: p }));
                 }
             }
+            if let Some(lang) = self.language {
+                resp.answers.insert("user_language".into(), choice(lang));
+            }
             if request.questions.contains_key("slang_enough") {
                 let mut script = self.slang_enough.lock().unwrap();
                 let p = if script.len() > 1 {
@@ -105,6 +109,7 @@ fn jev_slang(
         intent,
         slang_enough: Mutex::new(enough.to_vec()),
         slang_best: best,
+        language: None,
         seen: Mutex::new(None),
     })
 }
@@ -225,8 +230,9 @@ async fn frank_chat_gets_slang_and_memes() {
             .unwrap()
             .contains("v1.4.0")
     );
-    // Five reading questions plus the two slang-fit questions.
-    assert_eq!(req.questions.len(), 7);
+    // Five reading questions, the two slang-fit questions, and the language.
+    assert_eq!(req.questions.len(), 8);
+    assert!(req.questions.contains_key("user_language"));
 }
 
 #[tokio::test]
@@ -614,4 +620,44 @@ async fn meme_cooldown_skips_memes_after_a_recent_one() {
     assert_eq!(out.rating.unwrap().max_memes, 0);
     assert!(out.remix.unwrap().memes.is_empty());
     assert!(!out.reply.contains("!["));
+}
+
+#[tokio::test]
+async fn english_writer_gets_english_slang_and_an_english_only_rule() {
+    let jev = Arc::new(ScriptedJev {
+        language: Some("english"),
+        ..Arc::try_unwrap(jev_slang(
+            0.9,
+            0.9,
+            0.0,
+            "celebration",
+            &[0.9],
+            "chill maar",
+        ))
+        .ok()
+        .unwrap()
+    });
+    let model = spy("BROOO no cap, you earned this fr 🔥");
+    let engine = MemeEngine::builder(jev, model.clone()).build();
+    let out = engine
+        .process(
+            &[Turn::user("BROOO I got the internship!!! 🥳")],
+            "Congratulations, well done.",
+        )
+        .await;
+    assert_eq!(
+        out.reading.unwrap().user_language,
+        Some(tinymemes::reading::UserLanguage::English)
+    );
+    let systems = model.systems.lock().unwrap();
+    let rewrite = systems.iter().find(|s| s.contains("Hard rules")).unwrap();
+    assert!(rewrite.contains("reply in English only"));
+    assert!(rewrite.contains("- no cap:"), "english slang offered");
+    assert!(
+        !rewrite.contains("- yaar:"),
+        "no Hinglish list for an English writer"
+    );
+    let users = model.users.lock().unwrap();
+    let user = users.iter().find(|u| u.contains("Original reply")).unwrap();
+    assert!(!user.contains("chill maar"), "no Hinglish best-fit hint");
 }

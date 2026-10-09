@@ -11,7 +11,7 @@ use crate::conversation::{Role, Turn, memes_as_text};
 use crate::error::{Error, Result};
 use crate::model::ChatModel;
 use crate::rating::Rating;
-use crate::reading::Reading;
+use crate::reading::{Reading, UserLanguage};
 use crate::region::{Region, SlangTerm};
 use crate::slang::SlangIndex;
 use crate::source::{Meme, MemeSource};
@@ -144,13 +144,22 @@ impl SlangAgent {
             (Vec::new(), Vec::new())
         };
 
-        let slang = self
-            .index
-            .terms_for(&self.region.code, reading.reply_intent, rating.tier);
+        // Slang follows the user's language: the regional index for Hinglish or
+        // Devanagari (or when Jev did not say), English internet slang for an
+        // English writer, and nothing for any other language.
+        let slang: Vec<SlangTerm> = match reading.user_language {
+            Some(UserLanguage::English) => {
+                Region::global().slang_for(rating.tier).cloned().collect()
+            }
+            Some(UserLanguage::Other) => Vec::new(),
+            _ => self
+                .index
+                .terms_for(&self.region.code, reading.reply_intent, rating.tier),
+        };
         let rewritten = self
             .model
             .complete(
-                &rewrite_system(&self.region, &slang, rating),
+                &rewrite_system(&self.region, &slang, rating, reading.user_language),
                 &rewrite_user(
                     reply,
                     last_user,
@@ -275,19 +284,45 @@ impl SlangAgent {
     }
 }
 
-fn rewrite_system(region: &Region, terms: &[SlangTerm], rating: Rating) -> String {
+fn rewrite_system(
+    region: &Region,
+    terms: &[SlangTerm],
+    rating: Rating,
+    language: Option<UserLanguage>,
+) -> String {
     let mut slang = String::new();
     for t in terms {
         slang.push_str(&format!("- {}: {}\n", t.term, t.meaning));
     }
+    if slang.is_empty() {
+        slang.push_str("(none; keep the user's own register)\n");
+    }
+    let language_rule = match language {
+        Some(UserLanguage::English) => {
+            "The user writes in English: reply in English only. No Hindi or other non-English words."
+        }
+        Some(UserLanguage::Hinglish) => {
+            "The user writes Hinglish: reply in Hinglish in Latin letters, at roughly their mix."
+        }
+        Some(UserLanguage::Devanagari) => {
+            "The user writes Hindi in Devanagari: reply in Devanagari."
+        }
+        Some(UserLanguage::Other) => {
+            "Reply in the same language and script as the user's message. Do not switch languages."
+        }
+        None => "Reply in the same language, script, and mix as the user's message.",
+    };
     format!(
         "You remix an AI assistant's reply so it sounds like a fun friend in a group chat in {name}.\n\
          Voice: {voice}\n\
+         Language: {language_rule}\n\
          Intensity: {style}\n\n\
-         Slang you may use (pick what fits, use each the way its meaning says; do not invent \
-         regional slang that is not on this list):\n{slang}\n\
+         Slang you may use (pick what fits, use each the way its meaning says, only terms that \
+         belong in the language the user is writing; do not invent regional slang that is not on \
+         this list):\n{slang}\n\
          Hard rules:\n\
          - Remix only the original reply. Do not answer, repeat, or refer to earlier messages.\n\
+         - Reply in the user's language and script. Never introduce a language the user did not use.\n\
          - Keep every fact, number, step, name, and caveat. Do not add new claims.\n\
          - Stay about as long as the original. Swap the voice, do not add explanations.\n\
          - Copy fenced code blocks, inline code, and URLs exactly, character for character.\n\
@@ -315,13 +350,19 @@ fn rewrite_user(
         "Chat intent: {}. Reply intent: {}.\n\n",
         reading.chat_intent, reading.reply_intent
     );
-    if let Some(best) = &reading.slang_best {
+    let regional_slang = !matches!(
+        reading.user_language,
+        Some(UserLanguage::English | UserLanguage::Other)
+    );
+    if let Some(best) = reading.slang_best.as_ref().filter(|_| regional_slang) {
         out.push_str(&format!(
             "Best-fitting slang for this reply (judged by a classifier): {best}\n\n"
         ));
     }
     if let Some(u) = last_user {
-        out.push_str("User's latest message (match their language and script):\n");
+        out.push_str(
+            "User's latest message (reply in exactly this language, script, and mix of languages):\n",
+        );
         out.push_str(u);
         out.push_str("\n\n");
     }

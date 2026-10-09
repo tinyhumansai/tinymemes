@@ -111,10 +111,11 @@ impl Region {
         Self {
             code: "IN".to_owned(),
             name: "India".to_owned(),
-            voice: "Write the way young Indians text: Hinglish (English mixed with Hindi words) in \
-                    Latin script. If the user writes in Devanagari, reply in Devanagari; if they write \
-                    plain English, keep it mostly English with a little Hinglish. Never translate \
-                    technical terms, commands, or names."
+            voice: "Mirror how the user writes: their language, script, and how much they mix \
+                    languages. Plain English gets English (Indian English slang only where it reads \
+                    naturally in English); Hinglish gets Hinglish at roughly their mix; Devanagari gets \
+                    Devanagari; any other language gets that language. Indian references set the \
+                    flavour, never the language. Never translate technical terms, commands, or names."
                 .to_owned(),
             culture: "Indian internet culture: Bollywood (Hera Pheri, Welcome, Gully Boy), OTT shows \
                       (Sacred Games, Panchayat, Mirzapur), TV (Taarak Mehta Ka Ooltah Chashmah), \
@@ -216,7 +217,8 @@ impl Region {
         Self {
             code: "XX".to_owned(),
             name: "Global".to_owned(),
-            voice: "Write in casual English internet voice. Keep the user's language if it is not English."
+            voice: "Mirror how the user writes: their language, script, and how much they mix \
+                    languages. Casual internet voice in whatever language they use."
                 .to_owned(),
             culture: "widely known English-language reaction memes".to_owned(),
             slang: vec![
@@ -230,7 +232,11 @@ impl Region {
                 term("W", "a win", Spicy),
                 term("L", "a loss", Spicy),
                 term("built different", "exceptionally capable", Unhinged),
-                term("main character energy", "acting like the star of the story", Unhinged),
+                term(
+                    "main character energy",
+                    "acting like the star of the story",
+                    Unhinged,
+                ),
             ],
             reply_query: "current internet slang that would fit naturally in a casual reply to \
                           this message: \"{reply}\""

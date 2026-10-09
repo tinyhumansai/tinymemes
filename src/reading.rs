@@ -22,6 +22,54 @@ const PLAYFUL: &str = "playful";
 const SERIOUS: &str = "serious";
 const SLANG_BEST: &str = "slang_best";
 const SLANG_ENOUGH: &str = "slang_enough";
+const USER_LANGUAGE: &str = "user_language";
+
+/// The language and script the user writes in, as Jev judged it. The rewrite
+/// mirrors it, and the slang offered follows it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserLanguage {
+    /// English only (internet slang and emoji count as English).
+    English,
+    /// An Indian language mixed with English, in Latin letters.
+    Hinglish,
+    /// Hindi in Devanagari script.
+    Devanagari,
+    /// Any other language.
+    Other,
+}
+
+impl UserLanguage {
+    const ALL: [UserLanguage; 4] = [
+        UserLanguage::English,
+        UserLanguage::Hinglish,
+        UserLanguage::Devanagari,
+        UserLanguage::Other,
+    ];
+
+    /// Wire label used as the Jev Choice option.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UserLanguage::English => "english",
+            UserLanguage::Hinglish => "hinglish",
+            UserLanguage::Devanagari => "devanagari",
+            UserLanguage::Other => "other",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            UserLanguage::English => {
+                "English only; internet slang and emoji still count as English"
+            }
+            UserLanguage::Hinglish => {
+                "Hindi or another Indian language mixed with English, written in Latin letters"
+            }
+            UserLanguage::Devanagari => "Hindi written in Devanagari script",
+            UserLanguage::Other => "any other language",
+        }
+    }
+}
 
 /// Choice option meaning no indexed term fits the reply.
 pub const NONE_FIT: &str = "none_fit";
@@ -81,12 +129,22 @@ pub struct Reading {
     /// Probability the offered slang already has enough terms that fit this
     /// reply. `None` when no terms were offered.
     pub slang_enough: Option<f64>,
+    /// The user's language and script. `None` when Jev did not answer.
+    pub user_language: Option<UserLanguage>,
 }
 
 impl Reading {
     /// Whether Jev thinks the index lacks slang for this reply, so a web
     /// search is worth running. `threshold` applies to [`Reading::slang_enough`].
     pub fn wants_more_slang(&self, threshold: f64) -> bool {
+        // The index holds regional (Hinglish) slang; researching more of it
+        // does nothing for a user who writes English or another language.
+        if matches!(
+            self.user_language,
+            Some(UserLanguage::English | UserLanguage::Other)
+        ) {
+            return false;
+        }
         match self.slang_enough {
             Some(enough) => enough < threshold || self.slang_best.is_none(),
             None => true,
@@ -155,6 +213,16 @@ pub fn reading_request(
             }),
         ),
     ]);
+    questions.insert(
+        USER_LANGUAGE.to_owned(),
+        Question::Choice(Choice {
+            instructions: json!("In what language and script does the user write their messages?"),
+            criteria: UserLanguage::ALL
+                .into_iter()
+                .map(|l| (l.as_str().to_owned(), Some(json!(l.description()))))
+                .collect(),
+        }),
+    );
     let mut state = jev_state(conversation, reply, region, window);
     if slang.len() >= 2 {
         let mut criteria: BTreeMap<String, Option<serde_json::Value>> = slang
@@ -233,6 +301,12 @@ pub fn parse_reading(response: &EvaluationResponse) -> Result<Reading> {
             _ => None,
         },
         slang_enough: noul(SLANG_ENOUGH).ok(),
+        user_language: match response.answers.get(USER_LANGUAGE) {
+            Some(Answer::Choice(c)) => UserLanguage::ALL
+                .into_iter()
+                .find(|l| l.as_str() == c.choice),
+            _ => None,
+        },
     })
 }
 
