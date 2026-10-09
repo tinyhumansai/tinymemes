@@ -925,7 +925,7 @@ dependencies = [
 [[package]]
 name = "tinyinference-decisions"
 version = "0.3.0"
-source = "git+https://github.com/tinyhumansai/tinyinference?rev=fdffc2a454af2b04e5052eb38dd3add8a6db1b85#fdffc2a454af2b04e5052eb38dd3add8a6db1b85"
+source = "git+https://github.com/tinyhumansai/tinyinference?rev=abf90568a24b826d49900150b20856ef166df3f8#abf90568a24b826d49900150b20856ef166df3f8"
 dependencies = [
  "async-trait",
  "httpdate",
