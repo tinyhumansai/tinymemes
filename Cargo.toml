@@ -1,0 +1,37 @@
+[package]
+name = "tinymemes"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "Reads a chat with Jev, rates how much fun a reply can take, and remixes it with slang and memes."
+repository = "https://github.com/tinyhumansai/tinymemes"
+readme = "README.md"
+keywords = ["memes", "llm", "openhuman", "jev", "chat"]
+categories = ["text-processing"]
+
+[dependencies]
+async-trait = "0.1"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
+# Jev decision model client. OpenHuman redirects this to its vendored copy via
+# `[patch."https://github.com/tinyhumansai/tinyinference"]`, so the host and
+# this module share one `tinyinference-decisions` package.
+tinyinference-decisions = { git = "https://github.com/tinyhumansai/tinyinference", rev = "fdffc2a454af2b04e5052eb38dd3add8a6db1b85" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
