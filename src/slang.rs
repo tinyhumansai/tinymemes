@@ -661,6 +661,7 @@ impl SlangResearcher for OpenRouterWebResearcher {
             "model": self.model,
             "temperature": 0.2,
             "plugins": [{ "id": "web", "max_results": self.max_results }],
+            "reasoning": { "enabled": false },
             "messages": [{ "role": "user", "content": prompt }],
         });
         let resp: Resp = self

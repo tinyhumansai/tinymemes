@@ -23,6 +23,10 @@ pub struct OpenAiCompatible {
     base_url: String,
     api_key: String,
     model: String,
+    /// Send OpenRouter's `reasoning: {enabled: false}`. A rewrite needs no
+    /// thinking, and reasoning models otherwise spend ~10s and 1k+ hidden
+    /// tokens per call.
+    disable_reasoning: bool,
 }
 
 impl fmt::Debug for OpenAiCompatible {
@@ -47,6 +51,7 @@ impl OpenAiCompatible {
             base_url: base_url.into(),
             api_key: api_key.into(),
             model: model.into(),
+            disable_reasoning: false,
         }
     }
 
@@ -56,7 +61,10 @@ impl OpenAiCompatible {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Self {
-        Self::new(http, "https://openrouter.ai/api/v1", api_key, model)
+        Self {
+            disable_reasoning: true,
+            ..Self::new(http, "https://openrouter.ai/api/v1", api_key, model)
+        }
     }
 }
 
@@ -75,7 +83,7 @@ impl ChatModel for OpenAiCompatible {
         struct Msg {
             content: Option<String>,
         }
-        let body = json!({
+        let mut body = json!({
             "model": self.model,
             "temperature": 0.8,
             "messages": [
@@ -83,6 +91,9 @@ impl ChatModel for OpenAiCompatible {
                 { "role": "user", "content": user },
             ],
         });
+        if self.disable_reasoning {
+            body["reasoning"] = json!({ "enabled": false });
+        }
         let resp: Resp = self
             .http
             .post(format!(
