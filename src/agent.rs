@@ -355,8 +355,8 @@ fn clip_chars(text: &str, max: usize) -> String {
 }
 
 /// Replace `[[meme:N]]` markers with markdown images, enforcing `max` and
-/// dropping unknown or repeated ids. If the model placed none but memes were
-/// allowed, the best candidate goes at the end.
+/// dropping unknown or repeated ids. A meme appears only where the model put
+/// one; none is forced in.
 pub(crate) fn resolve_markers(text: &str, candidates: &[Meme], max: usize) -> (String, Vec<Meme>) {
     let mut out = String::with_capacity(text.len());
     let mut used: Vec<usize> = Vec::new();
@@ -383,11 +383,6 @@ pub(crate) fn resolve_markers(text: &str, candidates: &[Meme], max: usize) -> (S
         rest = &after[end + 2..];
     }
     out.push_str(rest);
-    if used.is_empty() && max > 0 && !candidates.is_empty() {
-        out.push_str("\n\n");
-        out.push_str(&image(&candidates[0]));
-        used.push(0);
-    }
     let memes = used.into_iter().map(|i| candidates[i].clone()).collect();
     (collapse_blank_lines(&out), memes)
 }

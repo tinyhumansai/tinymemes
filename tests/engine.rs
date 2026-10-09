@@ -247,7 +247,7 @@ async fn serious_chat_is_left_alone_without_calling_the_model() {
 }
 
 #[tokio::test]
-async fn rewrite_that_mangles_code_keeps_original_wording_but_still_memes() {
+async fn rewrite_that_mangles_code_keeps_original_wording_without_memes() {
     let engine = MemeEngine::builder(
         jev(0.9, 0.8, 0.0, "banter"),
         model("just run the tests bestie [[meme:1]]"),
@@ -260,7 +260,8 @@ async fn rewrite_that_mangles_code_keeps_original_wording_but_still_memes() {
     let remix = out.remix.unwrap();
     assert!(!remix.rewrite_kept);
     assert!(out.reply.starts_with(reply));
-    assert_eq!(remix.memes.len(), 1);
+    // The discarded rewrite held the meme marker; no meme is forced in.
+    assert!(remix.memes.is_empty());
 }
 
 #[tokio::test]
@@ -596,4 +597,19 @@ async fn delivered_history_varies_voice_and_skips_recent_memes() {
             || rewrite.contains("[meme: Moye Moye]")
     );
     assert!(!rewrite.contains("1. Moye Moye"));
+}
+
+#[tokio::test]
+async fn meme_cooldown_skips_memes_after_a_recent_one() {
+    let model = spy("arre bhai [[meme:1]]");
+    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "banter"), model.clone()).build();
+    let history = vec![
+        Turn::user("lol"),
+        Turn::remixed("haha\n\n![Some Meme](https://x.example/m.png)"),
+        Turn::user("sahi hai"),
+    ];
+    let out = engine.process(&history, "Glad you liked it.").await;
+    assert_eq!(out.rating.unwrap().max_memes, 0);
+    assert!(out.remix.unwrap().memes.is_empty());
+    assert!(!out.reply.contains("!["));
 }

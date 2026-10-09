@@ -217,7 +217,20 @@ impl MemeEngine {
 
     /// Read, rate, and remix, returning errors instead of falling back.
     pub async fn try_process(&self, conversation: &[Turn], reply: &str) -> Result<Outcome> {
-        let (reading, rating) = self.rate(conversation, reply).await?;
+        let (reading, mut rating) = self.rate(conversation, reply).await?;
+        // Meme cooldown: no meme if one went out in the last few replies.
+        let cooldown = self.policy.meme_cooldown_turns;
+        if rating.max_memes > 0 && cooldown > 0 {
+            let recent_meme = conversation
+                .iter()
+                .rev()
+                .filter(|t| t.role == Role::Assistant)
+                .take(cooldown)
+                .any(|t| !memes_as_text(&t.text).1.is_empty());
+            if recent_meme {
+                rating.max_memes = 0;
+            }
+        }
         tracing::debug!(
             chat = %reading.chat_intent,
             reply = %reading.reply_intent,

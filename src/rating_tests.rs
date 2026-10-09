@@ -23,7 +23,7 @@ fn serious_chat_is_off_however_frank() {
 fn frank_playful_banter_is_unhinged() {
     let r = RatingPolicy::default().rate(&reading(0.9, 0.9, 0.05, Intent::Banter));
     assert_eq!(r.tier, Tier::Unhinged);
-    assert_eq!(r.max_memes, 2);
+    assert_eq!(r.max_memes, 1);
 }
 
 #[test]

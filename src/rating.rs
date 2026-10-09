@@ -59,6 +59,9 @@ pub struct RatingPolicy {
     pub spicy_memes: usize,
     /// Memes allowed at [`Tier::Unhinged`].
     pub unhinged_memes: usize,
+    /// No meme when one was sent in this many most recent assistant replies.
+    /// 0 disables the cooldown.
+    pub meme_cooldown_turns: usize,
 }
 
 impl Default for RatingPolicy {
@@ -68,8 +71,9 @@ impl Default for RatingPolicy {
             light_at: 3,
             spicy_at: 5,
             unhinged_at: 8,
-            spicy_memes: 1,
-            unhinged_memes: 2,
+            spicy_memes: 0,
+            unhinged_memes: 1,
+            meme_cooldown_turns: 3,
         }
     }
 }

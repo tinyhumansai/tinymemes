@@ -25,10 +25,10 @@ fn markers_resolve_with_cap_and_dedupe() {
 }
 
 #[test]
-fn no_marker_appends_best_candidate() {
+fn no_marker_means_no_meme() {
     let (out, used) = resolve_markers("all good fam", &[meme(1)], 1);
-    assert_eq!(used.len(), 1);
-    assert!(out.ends_with("![Meme 1](https://m.example/1.gif)"));
+    assert!(used.is_empty());
+    assert_eq!(out, "all good fam");
 }
 
 #[test]
