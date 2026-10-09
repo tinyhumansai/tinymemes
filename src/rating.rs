@@ -138,6 +138,8 @@ mod tests {
             frankness,
             playful,
             serious,
+            slang_best: None,
+            slang_enough: None,
         }
     }
 

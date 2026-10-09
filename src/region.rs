@@ -61,6 +61,9 @@ pub struct Region {
     /// Web research query templates for growing the index. `{intent}` and
     /// `{year}` are filled in per bucket.
     pub slang_queries: Vec<String>,
+    /// Research query used when Jev finds no slang that fits a reply.
+    /// `{reply}` is replaced with an excerpt of the reply.
+    pub reply_query: String,
     /// Memes searched before any external source.
     pub memes: Vec<CatalogMeme>,
     /// Words that must never appear in a rewrite (matched as whole words,
@@ -147,6 +150,9 @@ impl Region {
                 term("kat gaya", "got fooled or ripped off", Unhinged),
                 term("moye moye", "when a plan falls apart (ironic sad)", Unhinged),
             ],
+            reply_query: "Hinglish or Indian Gen Z slang and meme phrases that would fit naturally \
+                          in a casual reply to this message: \"{reply}\""
+                .to_owned(),
             slang_queries: [
                 "Hinglish slang people use when {intent}",
                 "Indian Gen Z slang for {intent} {year}",
@@ -226,6 +232,9 @@ impl Region {
                 term("built different", "exceptionally capable", Unhinged),
                 term("main character energy", "acting like the star of the story", Unhinged),
             ],
+            reply_query: "current internet slang that would fit naturally in a casual reply to \
+                          this message: \"{reply}\""
+                .to_owned(),
             slang_queries: [
                 "internet slang people use when {intent} {year}",
                 "Gen Z slang for {intent}",

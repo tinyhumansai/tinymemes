@@ -115,12 +115,16 @@ pub struct LearnReport {
 /// When to research.
 #[derive(Clone, Copy, Debug)]
 pub struct IndexPolicy {
-    /// Keep researching a bucket until it holds this many web-learned terms.
-    pub min_web_terms: usize,
+    /// Search when Jev's `slang_enough` probability falls below this.
+    pub search_below: f64,
+    /// Terms shown to Jev for the fit check (Choice allows up to 254 + `none_fit`).
+    pub jev_candidates: usize,
     /// Re-run a query after this many seconds.
     pub refresh_after_secs: u64,
     /// Terms offered to the rewrite per reply.
     pub offer: usize,
+    /// Most web searches per region per rolling 24 hours.
+    pub max_searches_per_day: usize,
     /// Minimum Jev verification probability for a web term to be kept.
     pub min_verified: f64,
 }
@@ -128,8 +132,10 @@ pub struct IndexPolicy {
 impl Default for IndexPolicy {
     fn default() -> Self {
         Self {
-            min_web_terms: 6,
+            search_below: 0.5,
+            jev_candidates: 40,
             refresh_after_secs: 7 * 24 * 3600,
+            max_searches_per_day: 50,
             offer: 18,
             min_verified: 0.6,
         }
@@ -258,15 +264,11 @@ impl SlangIndex {
     }
 
     /// The next research query for this bucket, if it needs one.
+    /// The next query to run for this bucket: never-run templates first, then
+    /// the stalest expired one. `None` when every template ran recently, which
+    /// caps search spend however often Jev asks for more.
     pub fn next_query(&self, region: &Region, intent: Intent, now: u64) -> Option<String> {
         let data = self.data.read().unwrap();
-        let web_terms = data
-            .terms
-            .iter()
-            .filter(|t| {
-                t.region == region.code && t.origin == Origin::Web && t.intents.contains(&intent)
-            })
-            .count();
         let last_run = |q: &str| {
             data.searches
                 .iter()
@@ -274,18 +276,40 @@ impl SlangIndex {
                 .map(|s| s.at)
                 .max()
         };
-        let fresh = |q: &str| {
-            last_run(q).is_some_and(|at| now.saturating_sub(at) < self.policy.refresh_after_secs)
-        };
-        let queries = region_queries(region, intent, now);
-        if web_terms >= self.policy.min_web_terms {
-            // Saturated: only refresh the stalest query once it has expired.
-            return queries
-                .into_iter()
-                .filter(|q| last_run(q).is_some() && !fresh(q))
-                .min_by_key(|q| last_run(q));
-        }
-        queries.into_iter().find(|q| !fresh(q))
+        region_queries(region, intent, now)
+            .into_iter()
+            .filter(|q| {
+                last_run(q)
+                    .is_none_or(|at| now.saturating_sub(at) >= self.policy.refresh_after_secs)
+            })
+            .min_by_key(|q| last_run(q).unwrap_or(0))
+    }
+
+    /// The region's best terms regardless of intent, for Jev to judge against
+    /// a reply.
+    pub fn top_terms(&self, region: &str, limit: usize) -> Vec<SlangTerm> {
+        let data = self.data.read().unwrap();
+        let mut ranked: Vec<(u32, &LearnedTerm)> = data
+            .terms
+            .iter()
+            .filter(|t| t.region == region)
+            .map(|t| {
+                let curated = u32::from(t.origin == Origin::Curated) * 2;
+                (curated + t.seen.min(5) * 2 + t.used.min(10), t)
+            })
+            .collect();
+        ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
+        let mut seen = HashSet::new();
+        ranked
+            .into_iter()
+            .filter(|(_, t)| seen.insert(t.term.to_lowercase()))
+            .take(limit)
+            .map(|(_, t)| SlangTerm {
+                term: t.term.clone(),
+                meaning: t.meaning.clone(),
+                min_tier: t.min_tier,
+            })
+            .collect()
     }
 
     /// Vet and merge research results.
@@ -365,11 +389,8 @@ impl SlangIndex {
         report
     }
 
-    /// Run one learning step for a bucket if it needs one. Concurrent calls for
-    /// the same bucket collapse into one.
-    ///
-    /// With a `verifier`, every candidate is checked by one batched Jev call
-    /// and only terms scoring at least [`IndexPolicy::min_verified`] are kept.
+    /// Warm a bucket from the region's generic query templates (the next one
+    /// that has not run recently). Hosts can call this in the background.
     pub async fn learn(
         &self,
         researcher: &dyn SlangResearcher,
@@ -381,7 +402,61 @@ impl SlangIndex {
         let Some(query) = self.next_query(region, intent, now) else {
             return Ok(None);
         };
-        let key = format!("{}/{}", region.code, intent);
+        self.run_query(researcher, verifier, region, intent, query, now)
+            .await
+    }
+
+    /// Search for slang that fits one specific reply. The engine calls this
+    /// when Jev judges that the index has nothing suited to the reply.
+    pub async fn learn_for_reply(
+        &self,
+        researcher: &dyn SlangResearcher,
+        verifier: Option<(&dyn Evaluator, bool)>,
+        region: &Region,
+        intent: Intent,
+        reply: &str,
+    ) -> Result<Option<LearnReport>, BoxError> {
+        let now = unix_now();
+        let excerpt = clean(reply, 240);
+        if excerpt.is_empty() {
+            return Ok(None);
+        }
+        let query = region.reply_query.replace("{reply}", &excerpt);
+        self.run_query(researcher, verifier, region, intent, query, now)
+            .await
+    }
+
+    /// Searches in the last 24 hours for a region.
+    pub fn searches_today(&self, region: &str, now: u64) -> usize {
+        let data = self.data.read().unwrap();
+        data.searches
+            .iter()
+            .filter(|s| s.region == region && now.saturating_sub(s.at) < 24 * 3600)
+            .count()
+    }
+
+    async fn run_query(
+        &self,
+        researcher: &dyn SlangResearcher,
+        verifier: Option<(&dyn Evaluator, bool)>,
+        region: &Region,
+        intent: Intent,
+        query: String,
+        now: u64,
+    ) -> Result<Option<LearnReport>, BoxError> {
+        if self.searches_today(&region.code, now) >= self.policy.max_searches_per_day {
+            tracing::debug!("[tinymemes] daily slang search budget spent");
+            return Ok(None);
+        }
+        let repeat = self.data.read().unwrap().searches.iter().any(|s| {
+            s.region == region.code
+                && s.query == query
+                && now.saturating_sub(s.at) < self.policy.refresh_after_secs
+        });
+        if repeat {
+            return Ok(None);
+        }
+        let key = format!("{}/{}", region.code, query);
         if !self.in_flight.lock().unwrap().insert(key.clone()) {
             return Ok(None);
         }
@@ -648,56 +723,57 @@ mod tests {
     }
 
     #[test]
-    fn progressive_queries_then_saturation_then_refresh() {
+    fn queries_rotate_then_pause_until_refresh() {
         let region = Region::india();
         let index = SlangIndex::new(IndexPolicy {
-            min_web_terms: 2,
             refresh_after_secs: 100,
-            offer: 10,
-            min_verified: 0.6,
+            ..IndexPolicy::default()
         });
-        index.seed(&region);
-        let q1 = index
-            .next_query(&region, Intent::Celebration, 1000)
-            .unwrap();
-        index.absorb(
-            &region,
-            Intent::Celebration,
-            &q1,
-            vec![found("chak de", "https://a")],
-            1000,
-        );
-        // Still thin: a different query comes next.
-        let q2 = index
-            .next_query(&region, Intent::Celebration, 1001)
-            .unwrap();
-        assert_ne!(q1, q2);
-        index.absorb(
-            &region,
-            Intent::Celebration,
-            &q2,
-            vec![found("bahut hard", "https://b")],
-            1001,
-        );
-        // Saturated and fresh: nothing to do.
+        let mut ran = Vec::new();
+        for n in 0..region.slang_queries.len() {
+            let q = index
+                .next_query(&region, Intent::Celebration, 1000 + n as u64)
+                .unwrap();
+            assert!(!ran.contains(&q));
+            index.absorb(
+                &region,
+                Intent::Celebration,
+                &q,
+                Vec::new(),
+                1000 + n as u64,
+            );
+            ran.push(q);
+        }
+        // Every template ran recently: no search however often Jev asks.
         assert!(
             index
-                .next_query(&region, Intent::Celebration, 1002)
+                .next_query(&region, Intent::Celebration, 1050)
                 .is_none()
         );
-        // Another intent is its own bucket.
+        // Other intents are separate buckets.
         assert!(
             index
-                .next_query(&region, Intent::Frustration, 1002)
+                .next_query(&region, Intent::Frustration, 1050)
                 .is_some()
         );
-        // After the refresh window the stalest query comes back.
+        // After the refresh window the stalest comes back first.
         assert_eq!(
             index
                 .next_query(&region, Intent::Celebration, 1200)
                 .unwrap(),
-            q1
+            ran[0]
         );
+    }
+
+    #[test]
+    fn top_terms_are_intent_agnostic_and_deduped() {
+        let region = Region::india();
+        let index = SlangIndex::new(IndexPolicy::default());
+        index.seed(&region);
+        let top = index.top_terms("IN", 5);
+        assert_eq!(top.len(), 5);
+        index.record_used("IN", "bawaal bawaal");
+        assert_eq!(index.top_terms("IN", 1)[0].term, "bawaal");
     }
 
     #[test]

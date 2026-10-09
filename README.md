@@ -7,7 +7,8 @@ conversation + reply
       │
       ▼
  ┌──────────┐   one Jev call: chat_intent, reply_intent (Choice),
- │  Read    │   frankness (Score), playful + serious (Noul)
+ │  Read    │   frankness (Score), playful + serious (Noul),
+ │          │   slang_best (Choice) + slang_enough (Noul) over indexed slang
  └────┬─────┘
       ▼
  ┌──────────┐   pure policy → 0–10 rating → Off / Light / Spicy / Unhinged
@@ -36,16 +37,27 @@ conversation + reply
 `Region::global()` is the plain English alternative. Packs are plain data, so a
 host can extend them.
 
-## Slang that grows: `SlangIndex`
+## Slang that grows: `SlangIndex`, searched when Jev says so
 
 The slang offered to the rewrite comes from an in-memory index, not a fixed list.
 
 1. The index is **seeded** from the region's curated terms.
-2. **Research, step by step.** While an intent has fewer than 6 web terms, each
-   remixed reply with that intent runs the *next* unused query template (e.g.
-   "Hinglish slang people use when celebrating a win"). Templates are re-run
-   after 7 days.
-3. **Vet** each candidate before it enters the index:
+2. **Jev decides when to search.** The same Jev call that reads the chat also
+   sees the index's top 40 terms. It answers two questions about the reply
+   being remixed:
+   - `slang_best` (Choice): the term most specific to this reply's topic and
+     moment, or `none_fit`. Generic fillers like "bhai" don't count.
+   - `slang_enough` (Noul): does the index already have slang suited to this reply?
+
+   A search runs only when Jev picks `none_fit` or `slang_enough` < 0.5. Its
+   best pick is passed to the rewrite as a hint. As the index fills, Jev says
+   "enough" more often, so searches taper off. Jev has no tool calling (it
+   answers only Choice, Score and Noul questions), so this is how it makes the call.
+3. **The search is about the reply itself** ("Hinglish slang that would fit
+   naturally in a casual reply to this message: …"). The web model writes the
+   actual searches. The same query isn't repeated within 7 days, and there's
+   a cap of 50 searches per region per day.
+4. **Vet** each candidate before it enters the index:
    - its source must be a page the web search actually cited
    - the source domain must not look adult or spammy
    - it must be a word or short phrase, not a sentence or variant ("Achha (questioning)")
@@ -53,16 +65,18 @@ The slang offered to the rewrite comes from an in-memory index, not a fixed list
    - it must clear the blocklist
    - **one batched Jev call** must give it p ≥ 0.6 of being genuine, inoffensive
      regional slang with that meaning
-4. **Rank** by intent fit, corroboration (found by several searches) and usage
+5. **Rank** by intent fit, corroboration (found by several searches) and usage
    (used in replies). The top 18 that fit the tier are offered.
-5. **Persist** with `to_json` / `from_json`. OpenHuman can store the snapshot in
+6. **Persist** with `to_json` / `from_json`. OpenHuman can store the snapshot in
    its own memory.
 
 Research runs inline with a 25 s budget, and a failure or timeout just uses the
-current index. Hosts can turn inline research off with `.learn_inline(None)` and
-call `engine.learn_slang(intent)` in the background instead. `Outcome::learned`
-reports what each step added, corroborated and rejected. `OpenRouterWebResearcher`
-uses OpenRouter's web plugin and costs about $0.01 per search.
+current index. Hosts can turn inline research off with `.learn_inline(None)`,
+check `Reading::wants_more_slang`, and research in the background instead.
+`engine.learn_slang(intent)` warms an intent from generic templates.
+`Outcome::learned` reports what each step added, corroborated and rejected.
+`OpenRouterWebResearcher` uses OpenRouter's web plugin and costs about $0.01 per
+search.
 
 | Tier | Rating | Rewrite | Memes |
 | --- | --- | --- | --- |

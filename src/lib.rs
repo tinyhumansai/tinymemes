@@ -124,8 +124,10 @@ impl MemeEngine {
         self.agent.index()
     }
 
-    /// Run one slang research step for `intent` if its bucket needs it.
-    /// Hosts that turn off inline learning can call this in the background.
+    /// Run one slang research step for `intent` (the next query template that
+    /// has not run recently). The engine calls this when Jev judges the index
+    /// short of slang for a reply; hosts that turn off inline learning can call
+    /// it in the background when [`Reading::wants_more_slang`] says so.
     pub async fn learn_slang(&self, intent: Intent) -> Result<Option<LearnReport>> {
         let Some(researcher) = &self.researcher else {
             return Ok(None);
@@ -143,12 +145,18 @@ impl MemeEngine {
     }
 
     /// Read and rate only; no rewrite. Useful for hosts that want the signal.
+    ///
+    /// The same Jev call also judges the index's top slang against the reply
+    /// (`slang_best`, `slang_enough`), which decides whether to search.
     pub async fn rate(&self, conversation: &[Turn], reply: &str) -> Result<(Reading, Rating)> {
+        let index = self.agent.index();
+        let candidates = index.top_terms(&self.agent.region().code, index.policy().jev_candidates);
         let reading = reading::read(
             self.jev.as_ref(),
             conversation,
             reply,
             &self.agent.region().name,
+            &candidates,
             self.window,
             self.openjev,
         )
@@ -188,9 +196,19 @@ impl MemeEngine {
             .rev()
             .find(|t| t.role == Role::User)
             .map(|t| t.text.as_str());
+        let wants_search = reading.wants_more_slang(self.agent.index().policy().search_below);
         let learned = match (self.learn_inline, &self.researcher) {
-            (Some(budget), Some(_)) => {
-                match tokio::time::timeout(budget, self.learn_slang(reading.reply_intent)).await {
+            (Some(budget), Some(researcher)) if wants_search => {
+                let search = self.agent.index().learn_for_reply(
+                    researcher.as_ref(),
+                    Some((self.jev.as_ref(), self.openjev)),
+                    self.agent.region(),
+                    reading.reply_intent,
+                    reply,
+                );
+                match tokio::time::timeout(budget, async { search.await.map_err(Error::Research) })
+                    .await
+                {
                     Ok(Ok(report)) => report,
                     Ok(Err(e)) => {
                         tracing::debug!(error = %e, "[tinymemes] slang research failed; using current index");

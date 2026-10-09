@@ -91,6 +91,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rating.tier,
         );
     }
+    if let Some(reading) = &out.reading {
+        eprintln!(
+            "jev slang check: best={:?} enough={:?} -> {}",
+            reading.slang_best,
+            reading.slang_enough,
+            match (reading.wants_more_slang(0.5), out.learned.is_some()) {
+                (false, _) => "index has enough, no search",
+                (true, true) => "searched",
+                (true, false) => "wanted a search, but it timed out, failed, or hit the budget",
+            },
+        );
+    }
     if let Some(remix) = &out.remix {
         eprintln!(
             "queries={:?} memes={} rewrite_kept={}",

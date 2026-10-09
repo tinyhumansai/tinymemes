@@ -264,6 +264,11 @@ fn rewrite_user(
         "Chat intent: {}. Reply intent: {}.\n\n",
         reading.chat_intent, reading.reply_intent
     );
+    if let Some(best) = &reading.slang_best {
+        out.push_str(&format!(
+            "Best-fitting slang for this reply (judged by a classifier): {best}\n\n"
+        ));
+    }
     if let Some(u) = last_user {
         out.push_str("User's latest message (match their language and script):\n");
         out.push_str(u);

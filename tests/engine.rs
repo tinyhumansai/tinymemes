@@ -16,6 +16,9 @@ struct ScriptedJev {
     playful: f64,
     serious: f64,
     intent: &'static str,
+    /// Answer to `slang_enough`; flips after each call when scripted.
+    slang_enough: Mutex<Vec<f64>>,
+    slang_best: &'static str,
     seen: Mutex<Option<EvaluationRequest>>,
 }
 
@@ -65,17 +68,43 @@ impl Evaluator for ScriptedJev {
                         .insert(id.clone(), Answer::Noul(NoulAnswer { noul: p }));
                 }
             }
+            if request.questions.contains_key("slang_enough") {
+                let mut script = self.slang_enough.lock().unwrap();
+                let p = if script.len() > 1 {
+                    script.remove(0)
+                } else {
+                    script[0]
+                };
+                resp.answers
+                    .insert("slang_enough".into(), Answer::Noul(NoulAnswer { noul: p }));
+                resp.answers
+                    .insert("slang_best".into(), choice(self.slang_best));
+            }
             resp
         })
     }
 }
 
 fn jev(frankness: f64, playful: f64, serious: f64, intent: &'static str) -> Arc<ScriptedJev> {
+    jev_slang(frankness, playful, serious, intent, &[0.9], "yaar")
+}
+
+/// A Jev whose `slang_enough` answers follow `enough` in order (the last one repeats).
+fn jev_slang(
+    frankness: f64,
+    playful: f64,
+    serious: f64,
+    intent: &'static str,
+    enough: &[f64],
+    best: &'static str,
+) -> Arc<ScriptedJev> {
     Arc::new(ScriptedJev {
         frankness,
         playful,
         serious,
         intent,
+        slang_enough: Mutex::new(enough.to_vec()),
+        slang_best: best,
         seen: Mutex::new(None),
     })
 }
@@ -196,7 +225,8 @@ async fn frank_chat_gets_slang_and_memes() {
             .unwrap()
             .contains("v1.4.0")
     );
-    assert_eq!(req.questions.len(), 5);
+    // Five reading questions plus the two slang-fit questions.
+    assert_eq!(req.questions.len(), 7);
 }
 
 #[tokio::test]
@@ -366,16 +396,15 @@ async fn gaali_in_rewrite_is_rejected() {
 }
 
 #[tokio::test]
-async fn slang_index_grows_with_traffic_then_stops_searching() {
-    let index = Arc::new(SlangIndex::new(IndexPolicy {
-        min_web_terms: 2,
-        ..IndexPolicy::default()
-    }));
+async fn jev_decides_when_to_search_and_searches_taper_off() {
+    let index = Arc::new(SlangIndex::new(IndexPolicy::default()));
     let researcher = Arc::new(ScriptedResearcher {
         queries: Mutex::new(Vec::new()),
     });
     let model = spy("bawaal ho gaya, naya lingo 1");
-    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "celebration"), model.clone())
+    // Jev: short of slang twice, then satisfied.
+    let jev = jev_slang(0.9, 0.9, 0.0, "celebration", &[0.2, 0.3, 0.9], "yaar");
+    let engine = MemeEngine::builder(jev.clone(), model.clone())
         .slang_index(index.clone())
         .researcher(researcher.clone())
         .build();
@@ -394,20 +423,63 @@ async fn slang_index_grows_with_traffic_then_stops_searching() {
 
     let second = engine.process(&chat(), "Shipped again.").await;
     assert_eq!(second.learned.as_ref().unwrap().added, 1);
-    // Bucket now holds two web terms: no more searching until refresh.
+
+    // Jev now says the index has enough: no search.
     let third = engine.process(&chat(), "And again.").await;
     assert!(third.learned.is_none());
 
     let queries = researcher.queries.lock().unwrap();
     assert_eq!(queries.len(), 2);
     assert_ne!(queries[0], queries[1]);
-    assert!(queries[0].contains("celebrating a win"));
+    // Jev-triggered searches are about the reply itself.
+    assert!(queries[0].contains("\"Shipped.\""));
+    assert!(queries[1].contains("\"Shipped again.\""));
     assert_eq!(index.len("IN"), before + 2);
+
+    // Jev was shown the index's terms and asked to pick one or `none_fit`.
+    let req = jev.seen.lock().unwrap().clone().unwrap();
+    assert!(req.questions.contains_key("slang_best"));
+    assert!(req.state["slang_candidates"].as_array().unwrap().len() >= 2);
+    let best = serde_json::to_string(&req.questions["slang_best"]).unwrap();
+    assert!(best.contains("none_fit") && best.contains("jugaad"));
 
     // Persisted snapshot carries the learned terms and their usage.
     let restored = SlangIndex::from_json(&index.to_json(), IndexPolicy::default()).unwrap();
     assert_eq!(restored.len("IN"), before + 2);
-    assert!(index.to_json().contains("\"used\": 3"));
+}
+
+#[tokio::test]
+async fn none_fit_triggers_search_even_when_jev_says_enough() {
+    let researcher = Arc::new(ScriptedResearcher {
+        queries: Mutex::new(Vec::new()),
+    });
+    let engine = MemeEngine::builder(
+        jev_slang(0.9, 0.9, 0.0, "banter", &[0.95], "none_fit"),
+        model("lol"),
+    )
+    .researcher(researcher.clone())
+    .build();
+    let out = engine.process(&chat(), "Fair.").await;
+    assert!(out.reading.unwrap().slang_best.is_none());
+    assert_eq!(researcher.queries.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn best_fit_term_is_passed_to_the_rewrite() {
+    let model = spy("arre yaar");
+    let engine = MemeEngine::builder(
+        jev_slang(0.9, 0.9, 0.0, "banter", &[0.9], "jugaad"),
+        model.clone(),
+    )
+    .build();
+    engine.process(&chat(), "Use a workaround.").await;
+    let users = model.users.lock().unwrap();
+    assert!(
+        users
+            .iter()
+            .any(|u| u
+                .contains("Best-fitting slang for this reply (judged by a classifier): jugaad"))
+    );
 }
 
 #[tokio::test]
@@ -444,13 +516,54 @@ async fn jev_verification_drops_terms_it_does_not_believe() {
         }
     }
     let index = Arc::new(SlangIndex::new(IndexPolicy::default()));
-    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "celebration"), model("bawaal"))
-        .slang_index(index.clone())
-        .researcher(Arc::new(Mixed))
-        .build();
+    let engine = MemeEngine::builder(
+        jev_slang(0.9, 0.9, 0.0, "celebration", &[0.1], "yaar"),
+        model("bawaal"),
+    )
+    .slang_index(index.clone())
+    .researcher(Arc::new(Mixed))
+    .build();
     let out = engine.process(&chat(), "Shipped.").await;
     let learned = out.learned.unwrap();
     assert_eq!((learned.added, learned.failed_verification), (1, 1));
     assert!(index.to_json().contains("full bawaal"));
     assert!(!index.to_json().contains("fake slang"));
+}
+
+#[tokio::test]
+async fn daily_search_budget_caps_spend() {
+    let index = Arc::new(SlangIndex::new(IndexPolicy {
+        max_searches_per_day: 2,
+        ..IndexPolicy::default()
+    }));
+    let researcher = Arc::new(ScriptedResearcher {
+        queries: Mutex::new(Vec::new()),
+    });
+    let engine = MemeEngine::builder(
+        jev_slang(0.9, 0.9, 0.0, "banter", &[0.1], "none_fit"),
+        model("lol"),
+    )
+    .slang_index(index)
+    .researcher(researcher.clone())
+    .build();
+    for i in 0..4 {
+        engine.process(&chat(), &format!("reply {i}")).await;
+    }
+    assert_eq!(researcher.queries.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn the_same_reply_is_not_researched_twice() {
+    let researcher = Arc::new(ScriptedResearcher {
+        queries: Mutex::new(Vec::new()),
+    });
+    let engine = MemeEngine::builder(
+        jev_slang(0.9, 0.9, 0.0, "banter", &[0.1], "none_fit"),
+        model("lol"),
+    )
+    .researcher(researcher.clone())
+    .build();
+    engine.process(&chat(), "same reply").await;
+    engine.process(&chat(), "same reply").await;
+    assert_eq!(researcher.queries.lock().unwrap().len(), 1);
 }
