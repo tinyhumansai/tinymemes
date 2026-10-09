@@ -247,6 +247,21 @@ impl SlangIndex {
             .collect()
     }
 
+    /// Terms of `region` that appear in `text`, without recording usage.
+    pub fn terms_in(&self, region: &str, text: &str) -> Vec<String> {
+        let haystack = format!(" {} ", tokens(text).collect::<Vec<_>>().join(" "));
+        let data = self.data.read().unwrap();
+        data.terms
+            .iter()
+            .filter(|t| t.region == region)
+            .filter(|t| {
+                let needle = format!(" {} ", tokens(&t.term).collect::<Vec<_>>().join(" "));
+                !needle.trim().is_empty() && haystack.contains(&needle)
+            })
+            .map(|t| t.term.clone())
+            .collect()
+    }
+
     /// Terms of `region` that appear in `text`; bumps their usage.
     pub fn record_used(&self, region: &str, text: &str) -> Vec<String> {
         let haystack = format!(" {} ", tokens(text).collect::<Vec<_>>().join(" "));

@@ -570,7 +570,7 @@ async fn the_same_reply_is_not_researched_twice() {
 }
 
 #[tokio::test]
-async fn delivered_history_varies_voice_and_skips_recent_memes() {
+async fn rewrite_sees_only_the_reply_latest_message_and_recent_slang() {
     let model = spy("arre bhai [[meme:1]]");
     let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "frustration"), model.clone()).build();
     // The previous reply was delivered remixed, with the Moye Moye meme.
@@ -591,11 +591,13 @@ async fn delivered_history_varies_voice_and_skips_recent_memes() {
 
     let users = model.users.lock().unwrap();
     let rewrite = users.iter().find(|u| u.contains("Original reply")).unwrap();
-    assert!(rewrite.contains("Your recent replies"));
-    assert!(
-        rewrite.contains("Arre yaar, moye moye 😅 [meme: Moye Moye]")
-            || rewrite.contains("[meme: Moye Moye]")
-    );
+    // Earlier replies never reach the rewrite; only their slang does.
+    assert!(!rewrite.contains("moye moye 😅"), "{rewrite}");
+    assert!(!rewrite.contains("build fail ho gaya"));
+    assert!(rewrite.contains("Slang already used in your last few replies"));
+    assert!(rewrite.contains("arre") && rewrite.contains("yaar"));
+    // The latest user message is still there, for language and script.
+    assert!(rewrite.contains("phir se fail"));
     assert!(!rewrite.contains("1. Moye Moye"));
 }
 

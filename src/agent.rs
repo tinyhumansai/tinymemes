@@ -90,9 +90,11 @@ impl SlangAgent {
     }
 
     /// Remix `reply` at `rating`'s intensity. `conversation` is the chat as
-    /// the user saw it (earlier replies already remixed): the user's latest
-    /// message sets the language and script, recent replies are shown so the
-    /// voice varies, and memes sent recently are not sent again.
+    /// the user saw it. Only two things from it reach the rewrite: the user's
+    /// latest message (language and script) and the slang terms used in recent
+    /// replies (so the wording varies). Earlier messages themselves are never
+    /// shown to the rewrite, so it cannot answer or blend them in. Memes sent
+    /// recently are excluded by title.
     pub async fn run(
         &self,
         reply: &str,
@@ -110,12 +112,14 @@ impl SlangAgent {
             .rev()
             .filter(|t| t.role == Role::Assistant)
             .collect();
-        let recent: Vec<String> = assistant
-            .iter()
-            .filter(|t| t.remixed)
-            .take(RECENT_REPLIES)
-            .map(|t| clip_chars(&memes_as_text(&t.text).0, 400))
-            .collect();
+        let mut recent_slang: Vec<String> = Vec::new();
+        for turn in assistant.iter().filter(|t| t.remixed).take(RECENT_REPLIES) {
+            for term in self.index.terms_in(&self.region.code, &turn.text) {
+                if !recent_slang.contains(&term) {
+                    recent_slang.push(term);
+                }
+            }
+        }
         let sent: Vec<_> = assistant
             .iter()
             .take(MEME_MEMORY_TURNS)
@@ -150,7 +154,7 @@ impl SlangAgent {
                 &rewrite_user(
                     reply,
                     last_user,
-                    &recent,
+                    &recent_slang,
                     reading,
                     &candidates,
                     rating.max_memes,
@@ -283,6 +287,7 @@ fn rewrite_system(region: &Region, terms: &[SlangTerm], rating: Rating) -> Strin
          Slang you may use (pick what fits, use each the way its meaning says; do not invent \
          regional slang that is not on this list):\n{slang}\n\
          Hard rules:\n\
+         - Remix only the original reply. Do not answer, repeat, or refer to earlier messages.\n\
          - Keep every fact, number, step, name, and caveat. Do not add new claims.\n\
          - Stay about as long as the original. Swap the voice, do not add explanations.\n\
          - Copy fenced code blocks, inline code, and URLs exactly, character for character.\n\
@@ -301,7 +306,7 @@ fn rewrite_system(region: &Region, terms: &[SlangTerm], rating: Rating) -> Strin
 fn rewrite_user(
     reply: &str,
     last_user: Option<&str>,
-    recent: &[String],
+    recent_slang: &[String],
     reading: &Reading,
     candidates: &[Meme],
     max: usize,
@@ -320,17 +325,10 @@ fn rewrite_user(
         out.push_str(u);
         out.push_str("\n\n");
     }
-    if !recent.is_empty() {
-        out.push_str(
-            "Your recent replies in this chat, newest first. Keep the same voice, but vary the \
-             slang and catchphrases instead of repeating them:\n",
-        );
-        for r in recent {
-            out.push_str("- ");
-            out.push_str(&r.replace('\n', " "));
-            out.push('\n');
-        }
-        out.push('\n');
+    if !recent_slang.is_empty() {
+        out.push_str("Slang already used in your last few replies (prefer different words now): ");
+        out.push_str(&recent_slang.join(", "));
+        out.push_str("\n\n");
     }
     if max > 0 && !candidates.is_empty() {
         out.push_str("Meme candidates:\n");
@@ -345,13 +343,6 @@ fn rewrite_user(
     out.push_str("Original reply:\n");
     out.push_str(reply);
     out
-}
-
-fn clip_chars(text: &str, max: usize) -> String {
-    match text.char_indices().nth(max) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
-        None => text.to_owned(),
-    }
 }
 
 /// Replace `[[meme:N]]` markers with markdown images, enforcing `max` and
