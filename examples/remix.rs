@@ -30,8 +30,8 @@ struct Input {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("OPENROUTER_API_KEY")?;
-    let model =
-        std::env::var("TINYMEMES_MODEL").unwrap_or_else(|_| "google/gemini-2.5-flash".to_owned());
+    let model = std::env::var("TINYMEMES_MODEL")
+        .unwrap_or_else(|_| "deepseek/deepseek-v4-flash".to_owned());
     let http = reqwest::Client::new();
 
     // The slang index persists between runs, so it grows with every query.
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .researcher(Arc::new(OpenRouterWebResearcher::new(
         http.clone(),
         &key,
-        "google/gemini-2.5-flash",
+        "deepseek/deepseek-v4-flash",
     )))
     .source(Arc::new(Imgflip::new(http.clone())));
     if let Ok(k) = std::env::var("GIPHY_API_KEY") {

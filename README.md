@@ -116,7 +116,7 @@ OPENROUTER_API_KEY=… cargo run --example remix
 OPENROUTER_API_KEY=… cargo run --example remix -- chat.json
 ```
 
-Optional: `TINYMEMES_MODEL` (default `google/gemini-2.5-flash`), `GIPHY_API_KEY`,
+Optional: `TINYMEMES_MODEL` (default `deepseek/deepseek-v4-flash`), `GIPHY_API_KEY`,
 `TENOR_API_KEY`. Imgflip needs no key.
 
 ## Vendoring into OpenHuman

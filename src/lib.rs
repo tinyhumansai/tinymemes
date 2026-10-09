@@ -25,7 +25,7 @@
 //! let key = std::env::var("OPENROUTER_API_KEY")?;
 //! let engine = MemeEngine::builder(
 //!     Arc::new(Client::new(ClientConfig::openrouter(&key))?),
-//!     Arc::new(OpenAiCompatible::openrouter(http.clone(), &key, "google/gemini-2.5-flash")),
+//!     Arc::new(OpenAiCompatible::openrouter(http.clone(), &key, "deepseek/deepseek-v4-flash")),
 //! )
 //! .source(Arc::new(Imgflip::new(http)))
 //! .build();
