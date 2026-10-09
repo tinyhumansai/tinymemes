@@ -567,3 +567,33 @@ async fn the_same_reply_is_not_researched_twice() {
     engine.process(&chat(), "same reply").await;
     assert_eq!(researcher.queries.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn delivered_history_varies_voice_and_skips_recent_memes() {
+    let model = spy("arre bhai [[meme:1]]");
+    let engine = MemeEngine::builder(jev(0.9, 0.9, 0.0, "frustration"), model.clone()).build();
+    // The previous reply was delivered remixed, with the Moye Moye meme.
+    let history = vec![
+        Turn::user("build fail ho gaya"),
+        Turn::remixed("Arre yaar, moye moye 😅\n\n![Moye Moye](https://i.imgflip.com/82yaur.png)"),
+        Turn::user("phir se fail 😭"),
+    ];
+    let out = engine
+        .process(&history, "It failed again on the same test.")
+        .await;
+    let remix = out.remix.unwrap();
+    assert!(
+        remix.memes.iter().all(|m| m.title != "Moye Moye"),
+        "{:?}",
+        remix.memes
+    );
+
+    let users = model.users.lock().unwrap();
+    let rewrite = users.iter().find(|u| u.contains("Original reply")).unwrap();
+    assert!(rewrite.contains("Your recent replies"));
+    assert!(
+        rewrite.contains("Arre yaar, moye moye 😅 [meme: Moye Moye]")
+            || rewrite.contains("[meme: Moye Moye]")
+    );
+    assert!(!rewrite.contains("1. Moye Moye"));
+}

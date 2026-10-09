@@ -54,7 +54,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 pub use agent::{Remix, SlangAgent};
-pub use conversation::{Role, Turn, Window};
+pub use conversation::{Role, SentMeme, Turn, Window, memes_as_text};
 pub use error::{BoxError, Error, Result};
 pub use intent::Intent;
 pub use rating::{Rating, RatingPolicy, Tier};
@@ -144,6 +144,30 @@ impl MemeEngine {
             .map_err(Error::Research)
     }
 
+    /// Search for slang that fits `reply`, verify it with Jev, and add it to
+    /// the index. For hosts that research in the background when
+    /// [`Reading::wants_more_slang`] is true instead of inline.
+    pub async fn learn_for_reply(
+        &self,
+        intent: Intent,
+        reply: &str,
+    ) -> Result<Option<LearnReport>> {
+        let Some(researcher) = &self.researcher else {
+            return Ok(None);
+        };
+        self.agent
+            .index()
+            .learn_for_reply(
+                researcher.as_ref(),
+                Some((self.jev.as_ref(), self.openjev)),
+                self.agent.region(),
+                intent,
+                reply,
+            )
+            .await
+            .map_err(Error::Research)
+    }
+
     /// Read and rate only; no rewrite. Useful for hosts that want the signal.
     ///
     /// The same Jev call also judges the index's top slang against the reply
@@ -191,11 +215,6 @@ impl MemeEngine {
                 )),
             });
         }
-        let last_user = conversation
-            .iter()
-            .rev()
-            .find(|t| t.role == Role::User)
-            .map(|t| t.text.as_str());
         let wants_search = reading.wants_more_slang(self.agent.index().policy().search_below);
         let learned = match (self.learn_inline, &self.researcher) {
             (Some(budget), Some(researcher)) if wants_search => {
@@ -224,7 +243,10 @@ impl MemeEngine {
             }
             _ => None,
         };
-        let remix = self.agent.run(reply, last_user, &reading, rating).await?;
+        let remix = self
+            .agent
+            .run(reply, conversation, &reading, rating)
+            .await?;
         Ok(Outcome {
             reply: remix.reply.clone(),
             reading: Some(reading),

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 
+use crate::conversation::{Role, Turn, memes_as_text};
 use crate::error::{Error, Result};
 use crate::model::ChatModel;
 use crate::rating::Rating;
@@ -18,6 +19,10 @@ use crate::source::{Meme, MemeSource};
 const MAX_QUERIES: usize = 3;
 const PER_SEARCH: usize = 3;
 const MAX_CANDIDATES: usize = 8;
+/// Recent assistant replies shown to the rewrite so it varies its voice.
+const RECENT_REPLIES: usize = 3;
+/// Assistant turns scanned for memes that must not be sent again.
+const MEME_MEMORY_TURNS: usize = 6;
 
 /// What the agent produced.
 #[derive(Clone, Debug, Serialize)]
@@ -84,19 +89,52 @@ impl SlangAgent {
         &self.region
     }
 
-    /// Remix `reply` at `rating`'s intensity. `last_user` is the user's latest
-    /// message, so the voice and script can match theirs.
+    /// Remix `reply` at `rating`'s intensity. `conversation` is the chat as
+    /// the user saw it (earlier replies already remixed): the user's latest
+    /// message sets the language and script, recent replies are shown so the
+    /// voice varies, and memes sent recently are not sent again.
     pub async fn run(
         &self,
         reply: &str,
-        last_user: Option<&str>,
+        conversation: &[Turn],
         reading: &Reading,
         rating: Rating,
     ) -> Result<Remix> {
+        let last_user = conversation
+            .iter()
+            .rev()
+            .find(|t| t.role == Role::User)
+            .map(|t| t.text.as_str());
+        let assistant: Vec<&Turn> = conversation
+            .iter()
+            .rev()
+            .filter(|t| t.role == Role::Assistant)
+            .collect();
+        let recent: Vec<String> = assistant
+            .iter()
+            .filter(|t| t.remixed)
+            .take(RECENT_REPLIES)
+            .map(|t| clip_chars(&memes_as_text(&t.text).0, 400))
+            .collect();
+        let sent: Vec<_> = assistant
+            .iter()
+            .take(MEME_MEMORY_TURNS)
+            .flat_map(|t| memes_as_text(&t.text).1)
+            .collect();
+
         let has_sources = !self.sources.is_empty() || !self.region.memes.is_empty();
         let (queries, candidates) = if rating.max_memes > 0 && has_sources {
             let queries = self.plan(reply, reading).await;
-            let candidates = self.fetch(&queries, reading).await;
+            let candidates: Vec<Meme> = self
+                .fetch(&queries, reading)
+                .await
+                .into_iter()
+                .filter(|m| {
+                    !sent.iter().any(|s| {
+                        s.title.eq_ignore_ascii_case(&m.title) || s.url.as_deref() == Some(&m.url)
+                    })
+                })
+                .collect();
             (queries, candidates)
         } else {
             (Vec::new(), Vec::new())
@@ -109,7 +147,14 @@ impl SlangAgent {
             .model
             .complete(
                 &rewrite_system(&self.region, &slang, rating),
-                &rewrite_user(reply, last_user, reading, &candidates, rating.max_memes),
+                &rewrite_user(
+                    reply,
+                    last_user,
+                    &recent,
+                    reading,
+                    &candidates,
+                    rating.max_memes,
+                ),
             )
             .await
             .map_err(Error::Model)?;
@@ -256,6 +301,7 @@ fn rewrite_system(region: &Region, terms: &[SlangTerm], rating: Rating) -> Strin
 fn rewrite_user(
     reply: &str,
     last_user: Option<&str>,
+    recent: &[String],
     reading: &Reading,
     candidates: &[Meme],
     max: usize,
@@ -274,6 +320,18 @@ fn rewrite_user(
         out.push_str(u);
         out.push_str("\n\n");
     }
+    if !recent.is_empty() {
+        out.push_str(
+            "Your recent replies in this chat, newest first. Keep the same voice, but vary the \
+             slang and catchphrases instead of repeating them:\n",
+        );
+        for r in recent {
+            out.push_str("- ");
+            out.push_str(&r.replace('\n', " "));
+            out.push('\n');
+        }
+        out.push('\n');
+    }
     if max > 0 && !candidates.is_empty() {
         out.push_str("Meme candidates:\n");
         for (i, m) in candidates.iter().enumerate() {
@@ -287,6 +345,13 @@ fn rewrite_user(
     out.push_str("Original reply:\n");
     out.push_str(reply);
     out
+}
+
+fn clip_chars(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None => text.to_owned(),
+    }
 }
 
 /// Replace `[[meme:N]]` markers with markdown images, enforcing `max` and
@@ -422,77 +487,5 @@ pub(crate) fn json_object(text: &str) -> Option<&str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn meme(n: usize) -> Meme {
-        Meme {
-            title: format!("Meme {n}"),
-            url: format!("https://m.example/{n}.gif"),
-            source: "test".into(),
-            meaning: None,
-        }
-    }
-
-    #[test]
-    fn markers_resolve_with_cap_and_dedupe() {
-        let c = [meme(1), meme(2), meme(3)];
-        let (out, used) = resolve_markers(
-            "yo\n[[meme:2]]\nmid [[meme:2]] [[meme:9]] [[meme:3]] [[meme:1]]\nend",
-            &c,
-            2,
-        );
-        assert_eq!(used, vec![meme(2), meme(3)]);
-        assert!(out.contains("![Meme 2](https://m.example/2.gif)"));
-        assert!(out.contains("![Meme 3](https://m.example/3.gif)"));
-        assert!(!out.contains("[[meme"));
-        assert!(!out.contains("\n\n\n"));
-    }
-
-    #[test]
-    fn no_marker_appends_best_candidate() {
-        let (out, used) = resolve_markers("all good fam", &[meme(1)], 1);
-        assert_eq!(used.len(), 1);
-        assert!(out.ends_with("![Meme 1](https://m.example/1.gif)"));
-    }
-
-    #[test]
-    fn zero_budget_strips_markers() {
-        let (out, used) = resolve_markers("hey [[meme:1]] there", &[meme(1)], 0);
-        assert!(used.is_empty());
-        assert_eq!(out, "hey  there");
-    }
-
-    #[test]
-    fn protected_content_must_survive() {
-        let original = "Run `cargo test` then see https://docs.rs/x.\n```rust\nfn main() {}\n```";
-        assert!(preserves_protected(
-            original,
-            "ngl just `cargo test` fr, peep https://docs.rs/x\n```rust\nfn main() {}\n```"
-        ));
-        assert!(!preserves_protected(
-            original,
-            "just run the tests bestie https://docs.rs/x\n```rust\nfn main() {}\n```"
-        ));
-        assert!(!preserves_protected(
-            original,
-            "`cargo test` https://docs.rs/x\n```rust\nfn main(){}\n```"
-        ));
-    }
-
-    #[test]
-    fn ballooned_rewrite_is_rejected() {
-        let original = "x".repeat(300);
-        assert!(within_length(&original, &"y".repeat(700)));
-        assert!(!within_length(&original, &"y".repeat(900)));
-    }
-
-    #[test]
-    fn wrapping_fence_is_stripped() {
-        assert_eq!(strip_wrapping_fence("```markdown\nyo\n```"), "yo");
-        assert_eq!(
-            strip_wrapping_fence("```rust\nfn x(){}\n```"),
-            "```rust\nfn x(){}\n```"
-        );
-    }
-}
+#[path = "agent_tests.rs"]
+mod tests;

@@ -18,8 +18,12 @@ pub enum Role {
 pub struct Turn {
     /// Author of the message.
     pub role: Role,
-    /// Message text.
+    /// Message text, as the user saw it.
     pub text: String,
+    /// True for an assistant turn that tinymemes remixed. Jev is told that
+    /// its slang is the bot's style, not evidence of the user's tone.
+    #[serde(default)]
+    pub remixed: bool,
 }
 
 impl Turn {
@@ -28,6 +32,7 @@ impl Turn {
         Self {
             role: Role::User,
             text: text.into(),
+            remixed: false,
         }
     }
 
@@ -36,6 +41,16 @@ impl Turn {
         Self {
             role: Role::Assistant,
             text: text.into(),
+            remixed: false,
+        }
+    }
+
+    /// An assistant turn that was delivered remixed.
+    pub fn remixed(text: impl Into<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            text: text.into(),
+            remixed: true,
         }
     }
 }
@@ -64,13 +79,76 @@ pub(crate) fn jev_state(conversation: &[Turn], reply: &str, region: &str, window
     let start = conversation.len().saturating_sub(window.max_turns);
     let turns: Vec<Value> = conversation[start..]
         .iter()
-        .map(|t| json!({ "role": t.role, "text": clip(&t.text, window.max_chars_per_turn) }))
+        .map(|t| {
+            let text = clip(&memes_as_text(&t.text).0, window.max_chars_per_turn);
+            if t.remixed {
+                json!({
+                    "role": t.role,
+                    "text": text,
+                    "note": "the assistant's own playful remix voice; not evidence of the user's tone",
+                })
+            } else {
+                json!({ "role": t.role, "text": text })
+            }
+        })
         .collect();
     json!({
         "conversation": turns,
         "assistant_reply": clip(reply, window.max_chars_per_turn * 2),
         "audience_region": region,
     })
+}
+
+/// A meme found in a delivered message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentMeme {
+    /// Meme title (the image alt text).
+    pub title: String,
+    /// Image URL, when the message carried the image itself.
+    pub url: Option<String>,
+}
+
+/// Replace markdown images with `[meme: title]` and list the memes found.
+/// Already-normalized `[meme: title]` markers are listed too.
+pub fn memes_as_text(text: &str) -> (String, Vec<SentMeme>) {
+    let mut out = String::with_capacity(text.len());
+    let mut memes = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("![") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let parsed = after.find("](").and_then(|mid| {
+            let url_part = &after[mid + 2..];
+            url_part.find(')').map(|end| (mid, &url_part[..end], end))
+        });
+        match parsed {
+            Some((mid, url, end)) if !after[..mid].contains('\n') => {
+                let title = after[..mid].trim().to_owned();
+                out.push_str(&format!("[meme: {title}]"));
+                memes.push(SentMeme {
+                    title,
+                    url: Some(url.trim().to_owned()),
+                });
+                rest = &after[mid + 2 + end + 1..];
+            }
+            _ => {
+                out.push_str("![");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    let mut scan = out.as_str();
+    while let Some(start) = scan.find("[meme: ") {
+        let after = &scan[start + 7..];
+        let Some(end) = after.find(']') else { break };
+        let title = after[..end].trim().to_owned();
+        if !memes.iter().any(|m| m.title == title) {
+            memes.push(SentMeme { title, url: None });
+        }
+        scan = &after[end..];
+    }
+    (out, memes)
 }
 
 fn clip(text: &str, max_chars: usize) -> String {
@@ -81,26 +159,5 @@ fn clip(text: &str, max_chars: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn window_keeps_latest_turns_and_clips() {
-        let convo: Vec<Turn> = (0..30)
-            .map(|i| Turn::user(format!("msg {i} {}", "x".repeat(50))))
-            .collect();
-        let state = jev_state(
-            &convo,
-            "reply",
-            "India",
-            Window {
-                max_turns: 3,
-                max_chars_per_turn: 10,
-            },
-        );
-        let turns = state["conversation"].as_array().unwrap();
-        assert_eq!(turns.len(), 3);
-        assert_eq!(turns[0]["text"], "msg 27 xxx…");
-        assert_eq!(state["assistant_reply"], "reply");
-    }
-}
+#[path = "conversation_tests.rs"]
+mod tests;
