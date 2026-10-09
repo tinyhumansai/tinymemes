@@ -43,6 +43,8 @@ pub mod env;
 mod error;
 pub mod intent;
 pub mod llm_eval;
+pub mod meme_index;
+pub mod meme_research;
 pub mod model;
 pub mod rating;
 pub mod reading;
@@ -62,6 +64,8 @@ pub use env::{EnvConfig, JevMode};
 pub use error::{BoxError, Error, Result};
 pub use intent::Intent;
 pub use llm_eval::LlmEvaluator;
+pub use meme_index::{LearnedMeme, MemeIndex, MemeIndexPolicy, MemeLearnReport, MemeStatus};
+pub use meme_research::{FoundMeme, GiphyPageResearcher, MemeResearcher};
 pub use rating::{Rating, RatingPolicy, Tier};
 pub use reading::{Evaluator, Reading};
 pub use region::{CatalogMeme, Region, SlangTerm};
@@ -89,6 +93,19 @@ pub struct Outcome {
     pub skipped: Option<String>,
 }
 
+impl Outcome {
+    /// Whether this reply wanted a meme and Jev found nothing in the catalog
+    /// that fits: the trigger for background meme research.
+    pub fn wants_more_memes(&self) -> bool {
+        let meme_allowed = self.rating.is_some_and(|r| r.max_memes > 0);
+        let none_fit = self
+            .reading
+            .as_ref()
+            .is_some_and(|r| r.meme == reading::MemePick::NoneFit);
+        meme_allowed && none_fit
+    }
+}
+
 /// Reads, rates, and remixes agent replies.
 #[derive(Clone)]
 pub struct MemeEngine {
@@ -98,6 +115,7 @@ pub struct MemeEngine {
     window: Window,
     openjev: bool,
     researcher: Option<Arc<dyn SlangResearcher>>,
+    meme_researcher: Option<Arc<dyn MemeResearcher>>,
     learn_inline: Option<Duration>,
 }
 
@@ -183,6 +201,8 @@ impl MemeEngine {
             region: Region::default(),
             index: None,
             researcher: None,
+            meme_index: None,
+            meme_researcher: None,
             learn_inline: Some(Duration::from_secs(25)),
             policy: RatingPolicy::default(),
             window: Window::default(),
@@ -239,6 +259,31 @@ impl MemeEngine {
             .map_err(Error::Research)
     }
 
+    /// The learned-meme index, to snapshot, inspect, or review.
+    pub fn meme_index(&self) -> &Arc<MemeIndex> {
+        self.agent.meme_index()
+    }
+
+    /// Research new reaction GIFs for `intent`, vet them, and add the
+    /// survivors. Hosts call this in the background when
+    /// [`Outcome::wants_more_memes`] is true.
+    pub async fn learn_memes(&self, intent: Intent) -> Result<Option<MemeLearnReport>> {
+        let Some(researcher) = &self.meme_researcher else {
+            return Ok(None);
+        };
+        self.agent
+            .meme_index()
+            .learn(
+                researcher.as_ref(),
+                self.agent.model().as_ref(),
+                (self.jev.as_ref(), self.openjev),
+                self.agent.region(),
+                intent,
+            )
+            .await
+            .map_err(Error::Research)
+    }
+
     /// Read and rate only; no rewrite. Useful for hosts that want the signal.
     ///
     /// The same Jev call also judges the index's top slang against the reply
@@ -255,13 +300,13 @@ impl MemeEngine {
             .flat_map(|t| memes_as_text(&t.text).1)
             .map(|m| m.title.to_lowercase())
             .collect();
-        let memes: Vec<CatalogMeme> = self
-            .agent
-            .region()
+        let region = self.agent.region();
+        let memes: Vec<CatalogMeme> = region
             .memes
             .iter()
-            .filter(|m| !recently_sent.contains(&m.title.to_lowercase()))
             .cloned()
+            .chain(self.agent.meme_index().approved(&region.code))
+            .filter(|m| !recently_sent.contains(&m.title.to_lowercase()))
             .collect();
         let reading = reading::read(
             self.jev.as_ref(),
@@ -392,6 +437,8 @@ pub struct MemeEngineBuilder {
     region: Region,
     index: Option<Arc<SlangIndex>>,
     researcher: Option<Arc<dyn SlangResearcher>>,
+    meme_index: Option<Arc<MemeIndex>>,
+    meme_researcher: Option<Arc<dyn MemeResearcher>>,
     learn_inline: Option<Duration>,
     policy: RatingPolicy,
     window: Window,
@@ -450,6 +497,18 @@ impl MemeEngineBuilder {
         self
     }
 
+    /// Share a learned-meme index (e.g. restored from a snapshot).
+    pub fn meme_index(mut self, index: Arc<MemeIndex>) -> Self {
+        self.meme_index = Some(index);
+        self
+    }
+
+    /// Find new reaction GIFs on the web when the catalog has none that fit.
+    pub fn meme_researcher(mut self, researcher: Arc<dyn MemeResearcher>) -> Self {
+        self.meme_researcher = Some(researcher);
+        self
+    }
+
     /// Use OpenJEV's `openjev` model id instead of `jev-latest`.
     pub fn openjev(mut self, on: bool) -> Self {
         self.openjev = on;
@@ -465,11 +524,13 @@ impl MemeEngineBuilder {
                 self.sources,
                 self.region,
                 self.index.unwrap_or_default(),
+                self.meme_index.unwrap_or_default(),
             ),
             policy: self.policy,
             window: self.window,
             openjev: self.openjev,
             researcher: self.researcher,
+            meme_researcher: self.meme_researcher,
             learn_inline: self.learn_inline,
         }
     }

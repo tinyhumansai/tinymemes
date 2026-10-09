@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::conversation::{Role, Turn, memes_as_text};
 use crate::error::{Error, Result};
+use crate::meme_index::MemeIndex;
 use crate::model::ChatModel;
 use crate::rating::Rating;
 use crate::reading::{MemePick, Reading, UserLanguage};
@@ -62,6 +63,7 @@ pub struct SlangAgent {
     sources: Vec<Arc<dyn MemeSource>>,
     region: Arc<Region>,
     index: Arc<SlangIndex>,
+    memes: Arc<MemeIndex>,
 }
 
 impl std::fmt::Debug for SlangAgent {
@@ -82,6 +84,7 @@ impl SlangAgent {
         sources: Vec<Arc<dyn MemeSource>>,
         region: Region,
         index: Arc<SlangIndex>,
+        memes: Arc<MemeIndex>,
     ) -> Self {
         index.seed(&region);
         Self {
@@ -89,7 +92,18 @@ impl SlangAgent {
             sources,
             region: Arc::new(region),
             index,
+            memes,
         }
+    }
+
+    /// The learned-meme index in use.
+    pub fn meme_index(&self) -> &Arc<MemeIndex> {
+        &self.memes
+    }
+
+    /// The chat model the agent rewrites with.
+    pub fn model(&self) -> &Arc<dyn ChatModel> {
+        &self.model
     }
 
     /// The slang index in use.
@@ -154,14 +168,17 @@ impl SlangAgent {
         } else {
             match &reading.meme {
                 MemePick::Pick(title) => {
-                    let picked = self.region.memes.iter().find(|m| &m.title == title);
+                    // Curated catalog first, then approved learned GIFs.
+                    let picked = self
+                        .region
+                        .memes
+                        .iter()
+                        .find(|m| &m.title == title)
+                        .map(|m| m.to_meme())
+                        .or_else(|| self.memes.find_approved(&self.region.code, title));
                     (
                         vec![format!("jev:{title}")],
-                        picked
-                            .map(|m| m.to_meme())
-                            .into_iter()
-                            .filter(not_sent)
-                            .collect(),
+                        picked.into_iter().filter(not_sent).collect(),
                     )
                 }
                 MemePick::NoneFit => (vec!["jev:none_fit".to_owned()], Vec::new()),
@@ -184,6 +201,7 @@ impl SlangAgent {
         // only attach Jev's meme.
         if meme_only {
             let (reply, memes) = attach_meme(reply, &candidates, rating.max_memes);
+            memes.iter().for_each(|m| self.memes.record_used(&m.url));
             let slang_used = self.index.record_used(&self.region.code, &reply);
             return Ok(Remix {
                 reply,
@@ -252,6 +270,7 @@ impl SlangAgent {
             (rewritten, true)
         };
         let (reply, memes) = resolve_markers(&text, &candidates, rating.max_memes);
+        memes.iter().for_each(|m| self.memes.record_used(&m.url));
         let slang_used = self.index.record_used(&self.region.code, &reply);
         let slang_offered = slang.into_iter().map(|t| t.term).collect();
         Ok(Remix {

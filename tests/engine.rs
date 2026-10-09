@@ -772,3 +772,66 @@ async fn gaali_already_in_the_agent_reply_does_not_block_the_remix() {
     assert!(out.remix.unwrap().rewrite_kept);
     assert!(out.reply.starts_with("arre bc stadium"));
 }
+
+#[tokio::test]
+async fn approved_learned_gifs_are_offered_to_jev_and_sent() {
+    use tinymemes::{LearnedMeme, MemeIndex, MemeIndexPolicy, MemeStatus};
+    let index = Arc::new(
+        MemeIndex::from_json(
+            &serde_json::json!({
+                "memes": [LearnedMeme {
+                    region: "IN".into(),
+                    title: "Chup Ho Ja Satvi".into(),
+                    meaning: "when someone fails in public".into(),
+                    url: "https://media1.giphy.com/media/x/SinIp/200.webp".into(),
+                    page_url: "https://giphy.com/gifs/tmkoc-SinIp".into(),
+                    intents: vec![Intent::Banter],
+                    tags: vec!["tmkoc".into()],
+                    rating: "g".into(),
+                    verified: 0.9,
+                    status: MemeStatus::Approved,
+                    used: 0,
+                    added_at: 1,
+                }],
+                "searches": []
+            })
+            .to_string(),
+            MemeIndexPolicy::default(),
+        )
+        .unwrap(),
+    );
+    let jev = jev_meme("banter", "Chup Ho Ja Satvi");
+    let model = spy("lol bhai [[meme:1]]");
+    let engine = MemeEngine::builder(jev.clone(), model)
+        .meme_index(index.clone())
+        .build();
+    let out = engine.process(&chat(), "Fair, that was a fail.").await;
+    let req = jev.seen.lock().unwrap().clone().unwrap();
+    let q = serde_json::to_string(&req.questions["meme_best"]).unwrap();
+    assert!(q.contains("Chup Ho Ja Satvi") && q.contains("Moye Moye"));
+    assert!(
+        out.reply
+            .contains("![Chup Ho Ja Satvi](https://media1.giphy.com/media/x/SinIp/200.webp)")
+    );
+    assert!(!out.wants_more_memes());
+    assert!(index.to_json().contains("\"used\": 1"));
+}
+
+#[tokio::test]
+async fn none_fit_on_a_meme_eligible_reply_asks_for_research() {
+    let engine = MemeEngine::builder(jev_meme("banter", "none_fit"), model("lol")).build();
+    let out = engine.process(&chat(), "Fair point.").await;
+    assert!(out.wants_more_memes());
+    // A serious chat never does.
+    let engine = MemeEngine::builder(
+        Arc::new(ScriptedJev {
+            meme: Some("none_fit"),
+            ..Arc::try_unwrap(jev(0.9, 0.9, 0.9, "bad_news"))
+                .ok()
+                .unwrap()
+        }),
+        model("x"),
+    )
+    .build();
+    assert!(!engine.process(&chat(), "Sorry.").await.wants_more_memes());
+}

@@ -66,6 +66,13 @@ pub struct Region {
     pub reply_query: String,
     /// Memes searched before any external source.
     pub memes: Vec<CatalogMeme>,
+    /// Web search for new reaction GIFs; `{intent}` is filled per research step.
+    #[serde(default)]
+    pub meme_query: String,
+    /// Words that keep a learned GIF out whatever its rating (matched against
+    /// its title, URL slug, and tags): politics, religion, sex, violence.
+    #[serde(default)]
+    pub meme_topic_blocklist: Vec<String>,
     /// Words that must never appear in a rewrite (matched as whole words,
     /// case-insensitively). A rewrite containing one is discarded.
     pub blocklist: Vec<String>,
@@ -99,6 +106,88 @@ fn meme(title: &str, url: &str, meaning: &str, intents: &[Intent]) -> CatalogMem
 }
 
 /// Profanity common in English-language chat. Shared by every pack.
+/// Topics a learned GIF must not touch, in any region.
+const MEME_TOPICS_GLOBAL: &[&str] = &[
+    "politics",
+    "political",
+    "election",
+    "vote",
+    "protest",
+    "rally",
+    "minister",
+    "president",
+    "senator",
+    "parliament",
+    "trump",
+    "biden",
+    "putin",
+    "religion",
+    "religious",
+    "god",
+    "jesus",
+    "allah",
+    "church",
+    "mosque",
+    "temple",
+    "prayer",
+    "sexy",
+    "sex",
+    "nude",
+    "naked",
+    "kiss",
+    "bikini",
+    "lingerie",
+    "boobs",
+    "hot",
+    "adult",
+    "nsfw",
+    "gun",
+    "knife",
+    "blood",
+    "kill",
+    "murder",
+    "war",
+    "terror",
+    "riot",
+    "fight",
+    "drunk",
+    "drugs",
+    "weed",
+    "smoking",
+];
+
+/// India-specific topics a learned GIF must not touch.
+const MEME_TOPICS_INDIA: &[&str] = &[
+    "modi",
+    "bjp",
+    "congress",
+    "rahul",
+    "gandhi",
+    "kejriwal",
+    "aap",
+    "yogi",
+    "owaisi",
+    "shiv sena",
+    "pm",
+    "cm",
+    "chor",
+    "neta",
+    "hindu",
+    "muslim",
+    "sikh",
+    "christian",
+    "mandir",
+    "masjid",
+    "gurudwara",
+    "ram",
+    "allah",
+    "khalistan",
+    "pakistan",
+    "kashmir",
+    "manipur",
+    "army",
+];
+
 const ENGLISH_BLOCKLIST: &[&str] = &[
     "fuck", "fucking", "shit", "bitch", "cunt", "dick", "pussy", "retard", "retarded",
 ];
@@ -198,6 +287,12 @@ impl Region {
                      "Hera Pheri, Baburao: 'I'll take a nice little nap'; work done, time to relax",
                      &[Celebration, Grind, Gratitude]),
             ],
+            meme_query: "Indian reaction meme GIF for {intent} site:giphy.com".to_owned(),
+            meme_topic_blocklist: MEME_TOPICS_GLOBAL
+                .iter()
+                .chain(MEME_TOPICS_INDIA)
+                .map(|w| (*w).to_owned())
+                .collect(),
             blocklist: ENGLISH_BLOCKLIST
                 .iter()
                 .chain(&[
@@ -248,6 +343,8 @@ impl Region {
             .map(String::from)
             .to_vec(),
             memes: Vec::new(),
+            meme_query: "reaction meme GIF for {intent} site:giphy.com".to_owned(),
+            meme_topic_blocklist: MEME_TOPICS_GLOBAL.iter().map(|w| (*w).to_owned()).collect(),
             blocklist: ENGLISH_BLOCKLIST.iter().map(|w| (*w).to_owned()).collect(),
             giphy_lang: None,
             tenor_locale: None,
