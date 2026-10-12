@@ -926,3 +926,6 @@ async fn lost_native_acknowledgment_does_not_retry_or_claim_rollback() {
     assert_eq!(after.version, committed.version);
     assert_eq!(after.doc, committed.doc);
 }
+
+#[path = "content_usage_tests.rs"]
+mod content_usage_tests;

@@ -2,3 +2,6 @@
 .env
 .DS_Store
 slang-index.json
+
+# Local validation logs must survive build-target cleanup.
+/.validation/

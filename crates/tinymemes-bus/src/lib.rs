@@ -2,6 +2,8 @@
 //!
 //! Supplied snapshots and revision numbers are data. They confer no authority,
 //! admission, durable CAS guarantee, research verification or source ownership.
+mod content_usage;
+pub use content_usage::*;
 mod persistent;
 pub use persistent::*;
 mod intent;

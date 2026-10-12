@@ -4,9 +4,3 @@ resolver = "3"
 
 [profile.dev]
 debug = false
-
-# Temporary dependency-DRAFT shim for TinyBus PR60. Cargo’s replacement
-# selector is source/name/version (not revision); every original declaration
-# is pinned to canonical 1f255765. Remove after PR60/27 merge and refresh pins.
-[replace]
-"https://github.com/tinyhumansai/tinybus#tinybus:0.1.4" = { git = "https://github.com/tinyhumansai/tinybus", rev = "5256d08c41df5852ac1ccfcb58d4b24282b53cd7" }

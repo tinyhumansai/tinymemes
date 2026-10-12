@@ -1,6 +1,7 @@
-//! Stateless content module. Configuration cannot admit a backend or profile.
+//! Content module with stateless transforms and admitted persistent operations. Configuration cannot admit a backend or profile.
 use tinymemes_bus::{STATE_INTERFACE, STATE_PATH};
 
+mod content_usage;
 mod persistent;
 
 struct ContentService;
@@ -42,6 +43,14 @@ async fn setup(connection: tinybus::Connection) -> tinybus::Result<()> {
             },
         )
         .await?;
+    connection
+        .serve_at(
+            tinymemes_bus::CONTENT_USAGE_PATH.try_into()?,
+            content_usage::ContentUsageService {
+                connection: connection.clone(),
+            },
+        )
+        .await?;
     connection.request_name(STATE_INTERFACE).await?;
     Ok(())
 }
@@ -51,16 +60,16 @@ mod exports {
     tinybus_module::module_export! {
         setup = setup,
         worker_threads = 1,
-        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1"],
-        methods = ["Apply", "MarkRemixed", "WasRemixed"], signals = [], requires = [], optional = [], lazy = false,
+        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
+        methods = ["Apply", "MarkRemixed", "WasRemixed", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = [], lazy = false,
     }
 
     #[cfg(test)]
     tinybus_module::module_export_static! {
         setup = setup,
         worker_threads = 1,
-        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1"],
-        methods = ["Apply", "MarkRemixed", "WasRemixed"], signals = [], requires = [], optional = [], lazy = false,
+        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
+        methods = ["Apply", "MarkRemixed", "WasRemixed", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = [], lazy = false,
     }
 }
 
