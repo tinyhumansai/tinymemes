@@ -1352,22 +1352,7 @@ dependencies = [
 name = "tinybus"
 version = "0.1.6"
 source = "git+https://github.com/tinyhumansai/tinybus?rev=0de2d283f35cbbff08efad6fbe05537ffb74611b#0de2d283f35cbbff08efad6fbe05537ffb74611b"
-dependencies = [
- "async-trait",
- "flate2",
- "libc",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tar",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "ureq",
- "zip",
-]
+replace = "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de)"
 
 [[package]]
 name = "tinybus"
