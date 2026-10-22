@@ -166,7 +166,13 @@ async fn load_with_storage_mode(
 ) -> tinybus::Result<LoadedModule> {
     let artifact = artifact();
     let hash = tinybus::module::sha256_file(&artifact).unwrap();
-    let dir = tempfile_dir::Dir::new_in(artifact.parent().unwrap());
+    #[cfg(unix)]
+    let fixture_parent = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| artifact.parent().unwrap().to_owned());
+    #[cfg(not(unix))]
+    let fixture_parent = artifact.parent().unwrap().to_owned();
+    let dir = tempfile_dir::Dir::new_in(&fixture_parent);
     let staged = dir.path().join(artifact.file_name().unwrap());
     std::fs::copy(&artifact, &staged).unwrap();
     std::fs::write(
@@ -236,7 +242,13 @@ async fn load_unattested_with_storage(
     TestStorageHost,
 ) {
     let artifact = artifact();
-    let dir = tempfile_dir::Dir::new_in(artifact.parent().unwrap());
+    #[cfg(unix)]
+    let fixture_parent = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| artifact.parent().unwrap().to_owned());
+    #[cfg(not(unix))]
+    let fixture_parent = artifact.parent().unwrap().to_owned();
+    let dir = tempfile_dir::Dir::new_in(&fixture_parent);
     let staged = dir.path().join(artifact.file_name().unwrap());
     std::fs::copy(&artifact, &staged).unwrap();
 
