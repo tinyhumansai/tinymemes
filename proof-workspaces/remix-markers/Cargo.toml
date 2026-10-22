@@ -5,8 +5,5 @@ resolver = "3"
 [profile.dev]
 debug = false
 
-# Same replacement as the root workspace: one tinybus copy at the commit
-# OpenHuman pins (see the root Cargo.toml).
-[replace]
-"https://github.com/tinyhumansai/tinybus#tinybus:0.1.5" = { git = "https://github.com/tinyhumansai/tinybus", rev = "f11987b0b44c92da2064a4b3787ca7527a23db26" }
-"https://github.com/tinyhumansai/tinybus#tinybus-module:0.1.5" = { git = "https://github.com/tinyhumansai/tinybus", rev = "f11987b0b44c92da2064a4b3787ca7527a23db26" }
+[patch."https://github.com/tinyhumansai/tinybus"]
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de" }
