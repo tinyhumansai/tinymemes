@@ -8,11 +8,11 @@ publish = false
 [dependencies]
 tinymemes-bus = { path = "../../../crates/tinymemes-bus" }
 tinymemes-client = { path = "../../../crates/tinymemes-client", features = ["host-callback"] }
-tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "d5b949be8ea56eb5a17289a09aa28e8c09bd88b7", default-features = false, features = ["modules"] }
-tinystoragedrivers-api = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
-tinystoragedrivers-busproxy = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
-tinystoragedrivers-types = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
-tinystoragedrivers-testkit = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de", default-features = false, features = ["modules"] }
+tinystoragedrivers-api = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-busproxy = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-testkit = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
 tempfile = "3"

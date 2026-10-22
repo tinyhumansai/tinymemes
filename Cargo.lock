@@ -9,15 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "arbitrary"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
-dependencies = [
- "derive_arbitrary",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -59,6 +50,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -109,6 +109,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -136,12 +142,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-utils"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
-
-[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -152,21 +152,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
-
-[[package]]
-name = "derive_arbitrary"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
 
 [[package]]
 name = "digest"
@@ -174,8 +172,19 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
- "crypto-common",
+ "block-buffer 0.10.4",
+ "crypto-common 0.1.7",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer 0.12.1",
+ "const-oid",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -475,6 +484,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hybrid-array"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
 name = "hyper"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -746,6 +764,18 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
 ]
 
 [[package]]
@@ -1150,7 +1180,18 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -1309,21 +1350,36 @@ dependencies = [
 
 [[package]]
 name = "tinybus"
-version = "0.1.5"
-source = "git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7#d5b949be8ea56eb5a17289a09aa28e8c09bd88b7"
-replace = "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=f11987b0b44c92da2064a4b3787ca7527a23db26)"
-
-[[package]]
-name = "tinybus"
-version = "0.1.5"
-source = "git+https://github.com/tinyhumansai/tinybus?rev=f11987b0b44c92da2064a4b3787ca7527a23db26#f11987b0b44c92da2064a4b3787ca7527a23db26"
+version = "0.1.6"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=0de2d283f35cbbff08efad6fbe05537ffb74611b#0de2d283f35cbbff08efad6fbe05537ffb74611b"
 dependencies = [
  "async-trait",
  "flate2",
  "libc",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "ureq",
+ "zip",
+]
+
+[[package]]
+name = "tinybus"
+version = "0.1.6"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de#11b0a728e62a5b7ae213c1cf6366f82b9e1a65de"
+dependencies = [
+ "async-trait",
+ "flate2",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "tar",
  "tempfile",
  "thiserror",
@@ -1336,19 +1392,13 @@ dependencies = [
 
 [[package]]
 name = "tinybus-module"
-version = "0.1.5"
-source = "git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7#d5b949be8ea56eb5a17289a09aa28e8c09bd88b7"
-replace = "tinybus-module 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=f11987b0b44c92da2064a4b3787ca7527a23db26)"
-
-[[package]]
-name = "tinybus-module"
-version = "0.1.5"
-source = "git+https://github.com/tinyhumansai/tinybus?rev=f11987b0b44c92da2064a4b3787ca7527a23db26#f11987b0b44c92da2064a4b3787ca7527a23db26"
+version = "0.1.6"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de#11b0a728e62a5b7ae213c1cf6366f82b9e1a65de"
 dependencies = [
  "async-trait",
  "serde",
  "serde_json",
- "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=f11987b0b44c92da2064a4b3787ca7527a23db26)",
+ "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de)",
  "tokio",
  "tracing",
 ]
@@ -1397,7 +1447,7 @@ dependencies = [
 name = "tinymemes-client"
 version = "0.4.1"
 dependencies = [
- "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7)",
+ "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de)",
  "tinymemes-bus",
  "tinystoragedrivers-api",
  "tinystoragedrivers-busproxy",
@@ -1414,9 +1464,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
- "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7)",
- "tinybus-module 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7)",
+ "sha2 0.10.9",
+ "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de)",
+ "tinybus-module",
  "tinymemes",
  "tinymemes-bus",
  "tinymemes-client",
@@ -1430,8 +1480,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-api"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1444,8 +1494,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-blob"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1458,26 +1508,26 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-bus"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "serde",
  "serde_json",
- "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7)",
+ "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=0de2d283f35cbbff08efad6fbe05537ffb74611b)",
  "tinystoragedrivers-types",
 ]
 
 [[package]]
 name = "tinystoragedrivers-busproxy"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "bytes",
  "futures-core",
  "serde",
  "serde_json",
- "tinybus 0.1.5 (git+https://github.com/tinyhumansai/tinybus?rev=d5b949be8ea56eb5a17289a09aa28e8c09bd88b7)",
+ "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=0de2d283f35cbbff08efad6fbe05537ffb74611b)",
  "tinystoragedrivers-api",
  "tinystoragedrivers-bus",
  "tinystoragedrivers-types",
@@ -1487,25 +1537,27 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-connect"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "rusqlite",
+ "serde_json",
  "tinystoragedrivers-types",
  "tokio",
+ "zstd",
 ]
 
 [[package]]
 name = "tinystoragedrivers-document"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "data-encoding",
  "rusqlite",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.11.1",
  "tinystoragedrivers-api",
  "tinystoragedrivers-connect",
  "tinystoragedrivers-types",
@@ -1515,8 +1567,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-kv"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "serde",
@@ -1527,14 +1579,14 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-queue"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "data-encoding",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.11.1",
  "tinystoragedrivers-api",
  "tinystoragedrivers-types",
  "tokio",
@@ -1543,8 +1595,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-secrets"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "tinystoragedrivers-api",
@@ -1554,8 +1606,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-testkit"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1575,8 +1627,8 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-types"
-version = "2.0.1"
-source = "git+https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#e3224a8262193e7466b230a59ef1c4769e44bf02"
+version = "2.1.0"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=05eaada962decbab33bafa4763d2bd1a67f6b456#05eaada962decbab33bafa4763d2bd1a67f6b456"
 dependencies = [
  "serde",
  "serde_json",
@@ -1769,6 +1821,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typed-path"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54ec2755506471f54baf5e4bb5499d8e510cc1caf271270e778a736bd2d7336c"
 
 [[package]]
 name = "typenum"
@@ -2206,19 +2264,16 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "2.4.2"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
- "arbitrary",
  "crc32fast",
- "crossbeam-utils",
- "displaydoc",
  "flate2",
  "indexmap",
  "memchr",
- "thiserror",
- "zopfli",
+ "nix",
+ "typed-path",
 ]
 
 [[package]]
@@ -2232,18 +2287,6 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zopfli"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaf7fc5d30c28483d93805c4a5e12b05bbb52407fa67c5f8bd552374cd01fb11"
-dependencies = [
- "bumpalo",
- "crc32fast",
- "log",
- "simd-adler32",
-]
 
 [[package]]
 name = "zstd"

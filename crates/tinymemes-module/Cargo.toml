@@ -17,9 +17,9 @@ static-link = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-tinystoragedrivers-api = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
-tinystoragedrivers-busproxy = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
-tinystoragedrivers-types = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
+tinystoragedrivers-api = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-busproxy = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 tinymemes = { path = "../.." }
 tinymemes-bus = { path = "../tinymemes-bus" }
 serde = { version = "1", features = ["derive"] }
@@ -28,15 +28,15 @@ async-trait = "0.1"
 tracing = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["sync", "time", "rt"] }
-tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "d5b949be8ea56eb5a17289a09aa28e8c09bd88b7", default-features = false }
-tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "d5b949be8ea56eb5a17289a09aa28e8c09bd88b7" }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de", default-features = false }
+tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de" }
 
 [dev-dependencies]
 tinymemes-client = { path = "../tinymemes-client", features = ["host-callback"] }
-tinystoragedrivers-testkit = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
+tinystoragedrivers-testkit = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "d5b949be8ea56eb5a17289a09aa28e8c09bd88b7", default-features = false, features = ["modules"] }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de", default-features = false, features = ["modules"] }
 
 [lints.rust]
 missing_docs = "warn"
