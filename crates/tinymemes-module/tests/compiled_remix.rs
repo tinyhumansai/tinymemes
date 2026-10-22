@@ -979,6 +979,8 @@ async fn concurrent_compiled_marks_keep_both_ids() {
 
 /// A scratch directory next to the artifact, removed on drop.
 mod tempfile_dir {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
