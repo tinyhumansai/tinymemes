@@ -993,11 +993,8 @@ mod tempfile_dir {
                 match std::fs::create_dir(&path) {
                     Ok(()) => {
                         #[cfg(unix)]
-                        std::fs::set_permissions(
-                            &path,
-                            std::fs::Permissions::from_mode(0o700),
-                        )
-                        .expect("make compiled-module fixture directory private");
+                        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+                            .expect("make compiled-module fixture directory private");
                         return Self(path);
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
