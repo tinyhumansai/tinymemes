@@ -991,7 +991,15 @@ mod tempfile_dir {
                 let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
                 let path = parent.join(format!("compiled-remix-{}-{id}", std::process::id()));
                 match std::fs::create_dir(&path) {
-                    Ok(()) => return Self(path),
+                    Ok(()) => {
+                        #[cfg(unix)]
+                        std::fs::set_permissions(
+                            &path,
+                            std::fs::Permissions::from_mode(0o700),
+                        )
+                        .expect("make compiled-module fixture directory private");
+                        return Self(path);
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create compiled-module fixture directory: {error}"),
                 }
