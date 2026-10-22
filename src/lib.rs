@@ -75,7 +75,7 @@ pub use region::{CatalogMeme, Region, SlangTerm};
 pub use research::{SearchHit, SearchResearcher, WebSearch};
 pub use slang::{IndexPolicy, LearnReport, SlangIndex, SlangResearcher};
 pub use source::{Meme, MemeSource};
-pub use store::{FileIndexStore, IndexStore};
+pub use store::IndexStore;
 /// The Jev client crate, re-exported so hosts build clients with the exact
 /// version tinymemes speaks.
 pub use tinyinference_decisions as decisions;

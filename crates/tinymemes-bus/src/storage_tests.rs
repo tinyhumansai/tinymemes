@@ -1,61 +1,33 @@
 use super::*;
 use serde_json::json;
-use tinystoragedrivers_core::schema::{MigrateOptions, Registry, ScopeClass};
-use tinystoragedrivers_core::{
-    DocumentStoreExt, MemoryStorage, Precondition, Query, Scope, ScopedStorage, StorageBackend,
-    Versioned, WriteOptions,
-};
-
-fn scoped() -> ScopedStorage {
-    MemoryStorage::new().for_scope(&Scope::local()).unwrap()
-}
-
-async fn seed_v1(storage: &ScopedStorage, id: &str, text: &str) {
-    storage
-        .documents()
-        .put_with(
-            LEGACY_STATE_COLLECTION,
-            id,
-            json!({ "json": text }),
-            Precondition::Absent,
-            WriteOptions::new().schema(1).created_ms(1_234),
-        )
-        .await
-        .unwrap();
-}
-
-async fn migrated(storage: &ScopedStorage) -> Registry {
-    let registry = Registry::compose([storage_schema()]).unwrap();
-    registry.prepare(&MemoryStorage::new()).await.unwrap();
-    registry
-        .migrate(storage, &MigrateOptions::new())
-        .await
-        .unwrap();
-    registry
-}
-
-async fn v2(storage: &ScopedStorage, id: &str) -> Option<Versioned<serde_json::Value>> {
-    storage.documents().get(STATE_COLLECTION, id).await.unwrap()
-}
 
 #[test]
-fn schema_declares_memes_state_as_a_tenant_collection() {
-    let schema = storage_schema();
-    Registry::compose([schema.clone()]).unwrap();
-    let item = schema
-        .items
-        .iter()
-        .find(|item| item.name() == "memes.state")
-        .expect("memes.state is declared");
-    assert_eq!(item.scope(), ScopeClass::Tenant);
-    assert_eq!(schema.items.len(), 1);
+fn collections_declare_memes_state_and_marker_storage_with_shared_runner_records() {
+    let names: Vec<_> = collections()
+        .into_iter()
+        .map(|collection| collection.name)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            STATE_COLLECTION,
+            MARKERS_COLLECTION,
+            LEGACY_MARKERS_COLLECTION,
+            LEGACY_STATE_COLLECTION,
+            MIGRATIONS_COLLECTION,
+            LEASES_COLLECTION,
+        ]
+    );
 }
 
 #[test]
 fn document_ids_are_the_v1_ids() {
-    for kind in [IndexKind::Slang, IndexKind::Memes, IndexKind::Remixed] {
-        let id = state_id(kind);
-        assert_eq!(Key::of([id]).unwrap().as_str(), id);
+    for (kind, expected) in [
+        (IndexKind::Slang, "slang"),
+        (IndexKind::Memes, "memes"),
+        (IndexKind::Remixed, "remixed"),
+    ] {
+        assert_eq!(state_id(kind), expected);
     }
 }
 
@@ -90,70 +62,24 @@ fn text_that_is_not_the_expected_shape_is_kept_verbatim() {
     }
 }
 
-#[tokio::test]
-async fn the_step_moves_every_v1_document_into_memes_state() {
-    let storage = scoped();
-    seed_v1(&storage, "slang", r#"{"terms":[],"searches":[]}"#).await;
-    seed_v1(&storage, "memes", r#"{"memes":[],"searches":[]}"#).await;
-    seed_v1(&storage, "remixed", r#"["m1","m2"]"#).await;
-    let registry = migrated(&storage).await;
-    registry.check_ready(STATE_COLLECTION).unwrap();
-
-    let slang = v2(&storage, "slang").await.unwrap();
-    assert_eq!(slang.doc, json!({"terms": [], "searches": []}));
-    assert_eq!(slang.meta.schema, 2);
-    assert_eq!(slang.meta.created_ms, 1_234);
+#[test]
+fn a_v1_record_keeps_its_json_content_for_the_owner_migrator() {
     assert_eq!(
-        v2(&storage, "memes").await.unwrap().doc,
-        json!({"memes": [], "searches": []})
+        migrate_state_body("slang", &json!({"json": r#"{"terms":[]}"#})),
+        json!({"terms": []})
     );
     assert_eq!(
-        v2(&storage, "remixed").await.unwrap().doc,
-        json!({"ids": ["m1", "m2"]})
+        migrate_state_body("remixed", &json!({"json": r#"["a","b"]"#})),
+        json!({"ids": ["a", "b"]})
     );
-    let legacy = storage
-        .documents()
-        .query_all(LEGACY_STATE_COLLECTION, &Query::all())
-        .await
-        .unwrap();
-    assert!(legacy.is_empty(), "the v1 collection is drained");
 }
 
-#[tokio::test]
-async fn the_step_is_a_no_op_without_v1_data_and_idempotent() {
-    let storage = scoped();
-    let registry = migrated(&storage).await;
-    registry.check_ready(STATE_COLLECTION).unwrap();
-    registry
-        .migrate(&storage, &MigrateOptions::new())
-        .await
-        .unwrap();
-    assert!(v2(&storage, "slang").await.is_none());
-}
-
-#[tokio::test]
-async fn the_step_keeps_unparseable_and_malformed_v1_documents() {
-    let storage = scoped();
-    seed_v1(&storage, "slang", "not json").await;
-    storage
-        .documents()
-        .put_with(
-            LEGACY_STATE_COLLECTION,
-            "memes",
-            json!({ "other": 1 }),
-            Precondition::Absent,
-            WriteOptions::new().schema(1),
-        )
-        .await
-        .unwrap();
-    migrated(&storage).await;
+#[test]
+fn malformed_v1_records_are_preserved_as_unparsed_text() {
+    let body = json!({"other": 1});
     assert_eq!(
-        v2(&storage, "slang").await.unwrap().doc,
-        json!({"unparsed": "not json"})
-    );
-    assert_eq!(
-        v2(&storage, "memes").await.unwrap().doc,
-        json!({"unparsed": r#"{"other":1}"#})
+        migrate_state_body("memes", &body),
+        json!({ "unparsed": body.to_string() })
     );
 }
 

@@ -9,17 +9,16 @@ repository = "https://github.com/tinyhumansai/tinymemes"
 
 [features]
 default = []
-# `storage::storage_schema()`: the memes.state collection and its v1->v2 step.
-# Ports-only storage core (no I/O, no runtime); a host composing schemas enables it.
-storage = ["dep:tinystoragedrivers-core"]
+# Kept for hosts that used to gate the declaration module at build time. The
+# declaration now contains pure wire types only and is available in every build.
+storage = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0", default-features = false, optional = true }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 
 [dev-dependencies]
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0", default-features = false }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [lints.rust]

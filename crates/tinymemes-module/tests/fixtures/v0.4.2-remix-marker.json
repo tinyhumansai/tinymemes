@@ -1,0 +1,15 @@
+{
+  "body": {
+    "business_revision": "1",
+    "format_version": 1,
+    "remixed": [
+      "old-release-reply"
+    ]
+  },
+  "collection": "remix_markers",
+  "expires_ms": null,
+  "id": "remix-state",
+  "schema": 0,
+  "storage_release": "tinystoragedrivers-v1.6.0",
+  "writer_release": "tinymemes-v0.4.2"
+}

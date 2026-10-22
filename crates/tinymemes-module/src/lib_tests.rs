@@ -8,6 +8,9 @@ async fn compiled_abi_returns_typed_content_and_conflicts_without_retaining_call
     let bus = MemoryBus::new();
     let broker = Broker::new();
     broker.clone().spawn(bus.clone());
+    let _storage = crate::test_support::serve_storage(&bus, "tenant:compiled-module-test")
+        .await
+        .unwrap();
     let host = ModuleHost::new(broker);
     let manifest = exports::linked_module().unwrap();
     host.attach_linked_with_config(manifest, serde_json::Value::Null)

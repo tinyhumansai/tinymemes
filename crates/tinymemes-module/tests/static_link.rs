@@ -1,6 +1,8 @@
 //! The `static-link` build exports `linked_module()` and the host admits it
 //! in-process, attesting it as host code (the executable's digest).
 
+use std::sync::Arc;
+
 use sha2::{Digest, Sha256};
 use tinybus::Connection;
 use tinybus::broker::Broker;
@@ -9,12 +11,26 @@ use tinybus::transport::memory::MemoryBus;
 use tinymemes_bus::{ApplyRequest, ContentOperation, ContentState, RemixRequest, STATE_INTERFACE};
 use tinymemes_client::{RemixClient, StateClient};
 use tinymemes_module::{BUS_NAME, linked_module};
+use tinystoragedrivers_api::StorageBackend;
+use tinystoragedrivers_busproxy::{PerCallerEndpoint, StorageServer};
+use tinystoragedrivers_testkit::MemoryBackend;
+use tinystoragedrivers_types::Scope;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     broker.clone().spawn(bus.clone());
+    let storage = MemoryBackend::new()
+        .for_scope(&Scope::new("tenant:static-link-test").unwrap())
+        .unwrap();
+    let storage_host = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let endpoint = PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(storage.clone())));
+    let _served_storage = tinystoragedrivers_busproxy::serve(&storage_host, Arc::new(endpoint))
+        .await
+        .unwrap();
     let host = ModuleHost::new(broker);
 
     let module = linked_module().expect("linked manifest is valid");

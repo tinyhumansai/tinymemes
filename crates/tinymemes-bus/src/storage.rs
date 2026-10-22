@@ -1,23 +1,36 @@
-//! The module's storage declaration: what a host composes into its schema
-//! registry and generates this module's storage grant from.
+//! Pure storage declarations and legacy value conversions for TinyMemes.
 //!
-//! The module itself never touches a collection: it asks the host to load and
-//! save one JSON text per [`IndexKind`] (`LoadIndex` / `SaveIndex`). The host
-//! keeps those texts in `memes.state`, one document per kind, as the *parsed*
+//! The engine asks the host to load and save one JSON text per [`IndexKind`]
+//! (`LoadIndex` / `SaveIndex`). The host keeps those texts in `memes.state`, one
+//! document per kind, as the *parsed*
 //! text (v1 kept the text as a string in `{"json": "<text>"}` in
 //! `tinymemes_documents`). [`state_body`] and [`state_text`] are the two
-//! directions of that mapping, so the host and the migration step agree on it.
+//! directions of that mapping. The module performs its own migration when it
+//! opens its already-bound storage handle.
 use crate::IndexKind;
 use serde_json::{Value, json};
-use tinystoragedrivers_core::schema::{
-    Owner, Schema, ScopeClass, SourceRecord, Step, TargetRecord,
-};
-use tinystoragedrivers_core::{Key, Result};
+use tinystoragedrivers_types::CollectionSpec;
 
 /// The v2 collection holding the learned-state documents.
 pub const STATE_COLLECTION: &str = "memes.state";
+/// Owner-owned collection for delivered-remix markers.
+pub const MARKERS_COLLECTION: &str = "memes.remix_markers";
+/// Legacy host-owned collection written through the previous marker API.
+pub const LEGACY_MARKERS_COLLECTION: &str = "remix_markers";
 /// The v1 collection the host kept them in, one `{"json": "<text>"}` body each.
 pub const LEGACY_STATE_COLLECTION: &str = "tinymemes_documents";
+/// Shared owner-local migration progress collection.
+pub const MIGRATIONS_COLLECTION: &str = "tsd.migrations";
+/// Shared leases collection used to serialize this owner's open migration.
+pub const LEASES_COLLECTION: &str = "tsd.leases";
+/// Stable owner name in the migration progress key.
+pub const OWNER: &str = "memes";
+/// Stable migration step id and progress-key component.
+pub const STATE_STEP: &str = "state_v2";
+/// Stable migration step id for the previous marker collection.
+pub const MARKERS_STEP: &str = "markers_v1";
+/// The target schema version written by the state migration.
+pub const STATE_VERSION: u32 = 2;
 
 /// Body field holding the remixed ids (a body must be an object, the ring is an
 /// array).
@@ -27,23 +40,24 @@ const IDS: &str = "ids";
 /// document as a fresh start, as it did before.
 const UNPARSED: &str = "unparsed";
 
-/// Declare `memes.state` and the step that brings `tinymemes_documents` into it.
+/// Declare the collections used by the memes owner and its state migration.
 ///
-/// # Panics
-///
-/// Never in practice: the owner name is a constant that satisfies the grammar.
+/// This is a pure declaration for the host to grant and ensure. It does not
+/// compose a cross-owner migration registry or open a backend.
 #[must_use]
-pub fn storage_schema() -> Schema {
-    Schema::new(Owner::new("memes").expect("`memes` is a valid owner"))
-        .collection(STATE_COLLECTION, 2, ScopeClass::Tenant)
-        .step(
-            Step::new("state_v2", STATE_COLLECTION, 1, 2, migrate_state)
-                .source(LEGACY_STATE_COLLECTION),
-        )
+pub fn collections() -> Vec<CollectionSpec> {
+    vec![
+        CollectionSpec::new(STATE_COLLECTION),
+        CollectionSpec::new(MARKERS_COLLECTION),
+        CollectionSpec::new(LEGACY_MARKERS_COLLECTION),
+        CollectionSpec::new(LEGACY_STATE_COLLECTION),
+        CollectionSpec::new(MIGRATIONS_COLLECTION),
+        CollectionSpec::new(LEASES_COLLECTION),
+    ]
 }
 
 /// The document id of `kind` (unchanged from v1; a plain word is its own
-/// [`Key`]).
+/// [`tinystoragedrivers_types::Key`]).
 #[must_use]
 pub fn state_id(kind: IndexKind) -> &'static str {
     match kind {
@@ -90,22 +104,15 @@ fn body_for(id: &str, text: &str) -> Value {
     }
 }
 
-/// v1 (`{"json": "<text>"}`) to v2 (the parsed text), keeping ids, creation
-/// time and expiry.
-fn migrate_state(batch: Vec<SourceRecord>) -> Result<Vec<TargetRecord>> {
-    batch
-        .into_iter()
-        .map(|record| {
-            let body = match record.body.get("json").and_then(Value::as_str) {
-                Some(text) => body_for(&record.id, text),
-                None => json!({ UNPARSED: record.body.to_string() }),
-            };
-            let id = Key::of([record.id.as_str()])?;
-            Ok(TargetRecord::new(STATE_COLLECTION, id.as_str(), body)
-                .created_ms(record.meta.created_ms)
-                .expires_ms(record.meta.expires_ms))
-        })
-        .collect()
+/// Convert one v1 (`{"json": "<text>"}`) body to the v2 body.
+///
+/// The caller preserves the source id and expiry while writing the target.
+#[must_use]
+pub fn migrate_state_body(id: &str, legacy: &Value) -> Value {
+    match legacy.get("json").and_then(Value::as_str) {
+        Some(text) => body_for(id, text),
+        None => json!({ UNPARSED: legacy.to_string() }),
+    }
 }
 
 #[cfg(test)]

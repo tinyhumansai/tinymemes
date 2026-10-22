@@ -2,9 +2,8 @@
 //!
 //! This crate is plain data: interface and member names, versions and
 //! request/response types. It is synchronous and does no I/O, and depends on
-//! not on `tinybus`. The optional `storage` feature (off by default) adds the
-//! ports-only `tinystoragedrivers-core` for `storage::storage_schema()`. The typed bus clients live in
-//! `tinymemes-client`.
+//! not on `tinybus`. Pure storage declarations are available from
+//! [`storage`]; the typed bus clients live in `tinymemes-client`.
 //!
 //! Supplied snapshots and revision numbers are data. They confer no authority,
 //! admission, durable CAS guarantee, research verification or source ownership.
@@ -14,7 +13,6 @@ mod intent;
 mod records;
 mod remix;
 mod state;
-#[cfg(feature = "storage")]
 pub mod storage;
 mod tier;
 pub use intent::Intent;

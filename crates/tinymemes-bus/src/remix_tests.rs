@@ -28,29 +28,24 @@ fn a_one_zero_peer_payload_still_decodes_without_correlation_fields() {
 }
 
 #[test]
-fn bus_contract_depends_on_no_bus_runtime_or_storage_driver() {
+fn bus_contract_uses_only_storage_data_types() {
     let manifest = include_str!("../Cargo.toml");
     // Normal dependencies only; dev-dependencies may use a runtime for tests.
     let normal = manifest.split("[dev-dependencies]").next().unwrap();
-    // Exemption, scoped to the opt-in `storage` feature: the optional,
-    // ports-only `tinystoragedrivers-core` (no I/O, no runtime). Default
-    // features stay free of every storage crate.
-    let normal = normal
-        .lines()
-        .filter(|line| {
-            let optional_core =
-                line.starts_with("tinystoragedrivers-core") && line.contains("optional = true");
-            let feature = line.starts_with("storage = ");
-            !(optional_core || feature)
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    for forbidden in ["tinybus", "tinystoragedrivers", "tokio", "reqwest"] {
+    for forbidden in [
+        "tinybus",
+        "tinystoragedrivers-core",
+        "tinystoragedrivers-document",
+        "tinystoragedrivers-testkit",
+        "tokio",
+        "reqwest",
+    ] {
         assert!(
             !normal.contains(forbidden),
             "{forbidden} must not be a dependency"
         );
     }
+    assert!(normal.contains("tinystoragedrivers-types"));
 }
 
 #[test]

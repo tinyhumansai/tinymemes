@@ -352,6 +352,9 @@ async fn bus_remix_reaches_the_callers_host_and_fails_open() {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     broker.clone().spawn(bus.clone());
+    let _storage = crate::test_support::serve_storage(&bus, "tenant:remix-test")
+        .await
+        .unwrap();
     let host = ModuleHost::new(broker);
     host.attach_linked_with_config(
         crate::exports::linked_module().unwrap(),
