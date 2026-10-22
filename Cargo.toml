@@ -51,4 +51,3 @@ all = { level = "warn", priority = -1 }
 # sides share one `Connection` type.
 [replace]
 "https://github.com/tinyhumansai/tinybus#tinybus:0.1.6" = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de" }
-"https://github.com/tinyhumansai/tinybus#tinybus-module:0.1.6" = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de" }
