@@ -32,7 +32,7 @@ tracing = "0.1"
 # Jev decision model client. OpenHuman redirects this to its vendored copy via
 # `[patch."https://github.com/tinyhumansai/tinyinference"]`, so the host and
 # this module share one `tinyinference-decisions` package.
-tinyinference-decisions = { git = "https://github.com/tinyhumansai/tinyinference", rev = "abf90568a24b826d49900150b20856ef166df3f8" }
+tinyinference-decisions = { version = "0.3.0", git = "https://github.com/tinyhumansai/tinyinference", rev = "abf90568a24b826d49900150b20856ef166df3f8" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
