@@ -10,6 +10,10 @@ use tinymemes_bus::{
 };
 
 #[cfg(feature = "host-callback")]
+mod content_usage;
+#[cfg(feature = "host-callback")]
+pub use content_usage::*;
+#[cfg(feature = "host-callback")]
 mod marker;
 #[cfg(feature = "host-callback")]
 pub use marker::*;

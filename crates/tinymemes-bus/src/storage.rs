@@ -15,6 +15,9 @@ use tinystoragedrivers_types::CollectionSpec;
 pub const STATE_COLLECTION: &str = "memes.state";
 /// Owner-owned collection for delivered-remix markers.
 pub const MARKERS_COLLECTION: &str = "memes.remix_markers";
+/// Owner-owned collection for the learned slang and meme catalog document
+/// the content-usage operations update.
+pub const CONTENT_COLLECTION: &str = "memes.content";
 /// Legacy host-owned collection written through the previous marker API.
 pub const LEGACY_MARKERS_COLLECTION: &str = "remix_markers";
 /// The v1 collection the host kept them in, one `{"json": "<text>"}` body each.
@@ -49,6 +52,7 @@ pub fn collections() -> Vec<CollectionSpec> {
     vec![
         CollectionSpec::new(STATE_COLLECTION),
         CollectionSpec::new(MARKERS_COLLECTION),
+        CollectionSpec::new(CONTENT_COLLECTION),
         CollectionSpec::new(LEGACY_MARKERS_COLLECTION),
         CollectionSpec::new(LEGACY_STATE_COLLECTION),
         CollectionSpec::new(MIGRATIONS_COLLECTION),

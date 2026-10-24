@@ -1,4 +1,4 @@
-//! Opt-in compiled module/native-port evidence. Depends on unpublished TSD PR 27.
+//! Opt-in compiled module/native-port evidence for markers and catalog operations.
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

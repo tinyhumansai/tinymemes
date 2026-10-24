@@ -7,6 +7,7 @@ use tinymemes_bus::{STATE_INTERFACE, STATE_PATH};
 /// Bus name the module claims.
 pub const BUS_NAME: &str = STATE_INTERFACE;
 
+mod content_usage;
 mod docs;
 mod engine;
 mod host;
@@ -68,6 +69,14 @@ async fn setup(connection: tinybus::Connection) -> tinybus::Result<()> {
             },
         )
         .await?;
+    connection
+        .serve_at(
+            tinymemes_bus::CONTENT_USAGE_PATH.try_into()?,
+            content_usage::ContentUsageService {
+                documents: std::sync::Arc::clone(storage.documents()),
+            },
+        )
+        .await?;
     connection.request_name(STATE_INTERFACE).await?;
     Ok(())
 }
@@ -76,8 +85,8 @@ macro_rules! module_declaration {
         tinybus_module::$export! {
             setup = setup,
             worker_threads = 1,
-            provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1"],
-            methods = ["Apply", "MarkRemixed", "WasRemixed", "Remix"], signals = [], requires = [], optional = ["ai.tinyhumans.tinymemes.Host"], lazy = false,
+            provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
+            methods = ["Apply", "MarkRemixed", "WasRemixed", "Remix", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = ["ai.tinyhumans.tinymemes.Host"], lazy = false,
         }
     };
 }

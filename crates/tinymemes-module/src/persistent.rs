@@ -52,7 +52,7 @@ impl Markers {
 }
 
 /// The contract's mirror of a native storage class (same wire form).
-fn marker_kind(kind: ErrorKind) -> MarkerStorageKind {
+pub(crate) fn marker_kind(kind: ErrorKind) -> MarkerStorageKind {
     match kind {
         ErrorKind::NotFound => MarkerStorageKind::NotFound,
         ErrorKind::Conflict => MarkerStorageKind::Conflict,

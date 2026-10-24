@@ -12,6 +12,7 @@ fn collections_declare_memes_state_and_marker_storage_with_shared_runner_records
         [
             STATE_COLLECTION,
             MARKERS_COLLECTION,
+            CONTENT_COLLECTION,
             LEGACY_MARKERS_COLLECTION,
             LEGACY_STATE_COLLECTION,
             MIGRATIONS_COLLECTION,

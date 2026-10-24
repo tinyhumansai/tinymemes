@@ -1,4 +1,8 @@
-# Persistent remix markers: dependency draft
+# Persistent remix markers: historical dependency draft
+
+The dependency narrative below records PR6 and its original test graph. It is
+superseded by the TSD v2.1 storage-port architecture; the catalog follow-up is
+described in [native catalog implementation](native-content-cas-implementation.md).
 
 The current module implements bounded native CAS. The historical staging
 sections below record failures and their disposition; they do not describe

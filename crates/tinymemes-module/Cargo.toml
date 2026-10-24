@@ -4,7 +4,7 @@ version = "0.4.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
-description = "Stateless TinyMemes content operations over the TinyBus module ABI."
+description = "TinyMemes content transforms and admitted catalog operations over the module ABI."
 repository = "https://github.com/tinyhumansai/tinymemes"
 
 [features]

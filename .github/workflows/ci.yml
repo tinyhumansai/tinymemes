@@ -33,7 +33,7 @@ jobs:
       - name: Execute the compiled module through its minimal contract
         run: cargo run -p tinymemes-client --example compiled_state -- target/debug/libtinymemes_module.so
 
-      - name: Execute authenticated persistent markers against native ports
+      - name: Execute authenticated markers and catalog updates against native ports
         run: scripts/test-remix-markers.sh
       - run: cargo fmt --manifest-path proof-workspaces/remix-markers/Cargo.toml -- --check
       - run: cargo clippy --manifest-path proof-workspaces/remix-markers/Cargo.toml --all-targets -- -D warnings

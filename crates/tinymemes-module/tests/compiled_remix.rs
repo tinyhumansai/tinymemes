@@ -989,6 +989,9 @@ async fn concurrent_compiled_marks_keep_both_ids() {
     assert_eq!(ids, ["first", "second"]);
 }
 
+#[path = "support/content_usage.rs"]
+mod content_usage;
+
 /// A scratch directory next to the artifact, removed on drop.
 mod tempfile_dir {
     #[cfg(unix)]
