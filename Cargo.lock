@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemes"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemes-bus"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemes-client"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "tinybus 0.1.6 (git+https://github.com/tinyhumansai/tinybus?rev=11b0a728e62a5b7ae213c1cf6366f82b9e1a65de)",
  "tinymemes-bus",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemes-module"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "reqwest",
