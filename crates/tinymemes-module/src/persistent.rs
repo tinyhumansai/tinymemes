@@ -1,10 +1,13 @@
-//! Marker operations over the original caller's admitted private document port.
+//! Marker operations over the module's host-bound document port.
 use std::collections::HashSet;
+use std::sync::Arc;
+use tinymemes_bus::storage::MARKERS_COLLECTION;
 use tinymemes_bus::{
-    MARKER_DOCUMENT_KEY, MARKER_DOCUMENT_PATH, MARKER_INTERFACE, MarkRemixedReply, MarkerFailure,
-    MarkerRequest,
+    MARKER_DOCUMENT_KEY, MARKER_INTERFACE, MarkRemixedReply, MarkerFailure, MarkerRequest,
+    MarkerStorageKind,
 };
-use tinystoragedrivers_bus::{DocumentClient, GetRequest, Precondition, PutRequest, StorageKind};
+use tinystoragedrivers_api::DocumentStore;
+use tinystoragedrivers_types::{ErrorKind, Precondition, StorageError};
 
 const MAX_ATTEMPTS: usize = 8;
 
@@ -48,8 +51,28 @@ impl Markers {
     }
 }
 
+/// The contract's mirror of a native storage class (same wire form).
+pub(crate) fn marker_kind(kind: ErrorKind) -> MarkerStorageKind {
+    match kind {
+        ErrorKind::NotFound => MarkerStorageKind::NotFound,
+        ErrorKind::Conflict => MarkerStorageKind::Conflict,
+        ErrorKind::AlreadyExists => MarkerStorageKind::AlreadyExists,
+        ErrorKind::Unsupported(_) => MarkerStorageKind::Unsupported,
+        ErrorKind::InvalidInput => MarkerStorageKind::InvalidInput,
+        ErrorKind::Serialization => MarkerStorageKind::Serialization,
+        ErrorKind::Crypto => MarkerStorageKind::Crypto,
+        ErrorKind::Unavailable => MarkerStorageKind::Unavailable,
+        ErrorKind::Backend => MarkerStorageKind::Backend,
+        _ => MarkerStorageKind::Backend,
+    }
+}
+
+fn storage_failure(error: StorageError) -> MarkerFailure {
+    MarkerFailure::Storage(marker_kind(error.kind()))
+}
+
 pub(crate) struct PersistentService {
-    pub(crate) connection: tinybus::Connection,
+    pub(crate) documents: Arc<dyn DocumentStore>,
 }
 fn failure(error: MarkerFailure) -> tinybus::Result<serde_json::Value> {
     Ok(serde_json::to_value(Result::<(), _>::Err(error))?)
@@ -83,32 +106,25 @@ impl tinybus::Interface for PersistentService {
         args: serde_json::Value,
         context: &tinybus::CallContext,
     ) -> tinybus::Result<serde_json::Value> {
-        // Retain this request's actual sender across every awaited read and CAS.
-        // Neither module configuration nor request data selects its destination.
-        let caller = context
+        // The host has already bound this module's storage handle. Continue to
+        // require the authenticated confidential caller before accessing it.
+        context
             .authenticated_sender()
             .filter(|_| context.is_confidential())
-            .ok_or_else(|| tinybus::Error::failed("authenticated confidential caller required"))?
-            .clone();
+            .ok_or_else(|| tinybus::Error::failed("authenticated confidential caller required"))?;
         if !matches!(member.as_str(), "MarkRemixed" | "WasRemixed") {
             return Err(tinybus::Error::failed("unknown marker operation"));
         }
         let (request,): (MarkerRequest,) = serde_json::from_value(args)
             .map_err(|_| tinybus::Error::failed("invalid marker request"))?;
-        let client = DocumentClient::new(self.connection.proxy(
-            caller.as_str(),
-            MARKER_DOCUMENT_PATH,
-            tinystoragedrivers_bus::INTERFACE,
-        )?)?;
         for _ in 0..MAX_ATTEMPTS {
-            let document = match client
-                .get(GetRequest {
-                    id: MARKER_DOCUMENT_KEY.into(),
-                })
-                .await?
+            let document = match self
+                .documents
+                .get(MARKERS_COLLECTION, MARKER_DOCUMENT_KEY)
+                .await
             {
                 Ok(document) => document,
-                Err(error) => return failure(MarkerFailure::Storage(error.kind)),
+                Err(error) => return failure(storage_failure(error)),
             };
             let (markers, condition) = match document {
                 Some(document) => {
@@ -159,19 +175,20 @@ impl tinybus::Interface for PersistentService {
                 business_revision: next.revision.to_string(),
                 remixed: next.remixed,
             })?;
-            match client
-                .put(PutRequest {
-                    id: MARKER_DOCUMENT_KEY.into(),
-                    doc,
-                    precondition: condition,
-                })
-                .await?
+            match self
+                .documents
+                .put(MARKERS_COLLECTION, MARKER_DOCUMENT_KEY, doc, condition)
+                .await
             {
                 Ok(_) => return Ok(serde_json::to_value(Result::<_, MarkerFailure>::Ok(reply))?),
-                Err(error) if error.kind == StorageKind::Conflict => continue,
-                Err(error) => return failure(MarkerFailure::Storage(error.kind)),
+                Err(error) if error.kind() == ErrorKind::Conflict => continue,
+                Err(error) => return failure(storage_failure(error)),
             }
         }
         failure(MarkerFailure::ConflictExhausted)
     }
 }
+
+#[cfg(test)]
+#[path = "persistent_tests.rs"]
+mod tests;

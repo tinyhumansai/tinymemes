@@ -1,25 +1,25 @@
 [package]
 name = "tinymemes-bus"
-version = "0.1.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
-description = "Content-only TinyMemes state contract and typed TinyBus client."
+description = "Content-only TinyMemes contract: wire types, member names and versions. Synchronous and I/O-free."
 repository = "https://github.com/tinyhumansai/tinymemes"
 
 [features]
 default = []
-host-callback = ["tinybus/modules"]
+# Kept for hosts that used to gate the declaration module at build time. The
+# declaration now contains pure wire types only and is available in every build.
+storage = []
 
 [dependencies]
-tinystoragedrivers-bus = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "a981da30c29c50b89f348ac1376fc7b9469bcbec" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "40814a8279ff71b8fb411f9f29362c8ec0be51e2", default-features = false }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "40814a8279ff71b8fb411f9f29362c8ec0be51e2", default-features = false, features = ["modules"] }
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [lints.rust]
 missing_docs = "warn"

@@ -61,6 +61,19 @@ pub struct Rating {
 }
 
 impl RatingPolicy {
+    /// The default policy with `meme_cooldown_turns` overridden by the numeric
+    /// value of environment variable `var`, when it is set and parses.
+    pub fn with_cooldown_from_env(var: &str) -> Self {
+        let mut policy = Self::default();
+        if let Some(turns) = std::env::var(var)
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+        {
+            policy.meme_cooldown_turns = turns;
+        }
+        policy
+    }
+
     /// Rate a reading.
     ///
     /// Frankness carries 60% of the score and playfulness 40%. A serious chat

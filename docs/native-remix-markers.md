@@ -1,13 +1,8 @@
 # Persistent remix markers: historical dependency draft
 
-The dependency narrative below records PR6 and its actual original test graph.
-PR6, TSD27, and TinyBus60 are now merged. The catalog follow-up removes the
-historical replacement sections, pins canonical TinyBus40814, and uses the
-explicitly unpublished TSD28 runtime-pin update pending its canonical merge.
-Fresh shim-free metadata and marker18 passed; see
-[native catalog implementation](native-content-cas-implementation.md).
-Merged PR59 callback lifecycle behavior is now in the canonical dependency.
-This is not a released module or OpenHuman reset/drain claim.
+The dependency narrative below records PR6 and its original test graph. It is
+superseded by the TSD v2.1 storage-port architecture; the catalog follow-up is
+described in [native catalog implementation](native-content-cas-implementation.md).
 
 The current module implements bounded native CAS. The historical staging
 sections below record failures and their disposition; they do not describe

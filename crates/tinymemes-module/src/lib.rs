@@ -1,8 +1,19 @@
-//! Content module with stateless transforms and admitted persistent operations. Configuration cannot admit a backend or profile.
+//! Content operations and persistent remix markers over the host's storage.
+//!
+//! The module owns its collection setup and migration when it starts; hosts
+//! provide the scoped storage ports but do not compose module migrations.
 use tinymemes_bus::{STATE_INTERFACE, STATE_PATH};
 
+/// Bus name the module claims.
+pub const BUS_NAME: &str = STATE_INTERFACE;
+
 mod content_usage;
+mod docs;
+mod engine;
+mod host;
 mod persistent;
+mod remix;
+mod storage;
 
 struct ContentService;
 #[async_trait::async_trait]
@@ -13,7 +24,7 @@ impl tinybus::service::Interface for ContentService {
     }
     /// List the entire callable surface; no configuration grants extra methods.
     fn members(&self) -> Vec<tinybus::MemberName> {
-        vec!["Apply".try_into().unwrap()]
+        vec![tinymemes_bus::APPLY_METHOD.try_into().unwrap()]
     }
     /// Decode positional arguments and invoke owning pure operations with fixed errors.
     async fn call(
@@ -30,8 +41,14 @@ impl tinybus::service::Interface for ContentService {
             .map_err(|_| tinybus::Error::failed("invalid content response"))
     }
 }
-/// Register the stateless operation at its declared path and bus name.
+/// Bind host storage, prepare this owner's collections, then serve operations.
 async fn setup(connection: tinybus::Connection) -> tinybus::Result<()> {
+    let storage = tinystoragedrivers_busproxy::connect_storage(connection.clone())
+        .await
+        .map_err(|error| tinybus::Error::failed(format!("connect storage: {error}")))?;
+    storage::prepare(&storage)
+        .await
+        .map_err(|error| tinybus::Error::failed(format!("prepare memes storage: {error}")))?;
     connection
         .serve_at(STATE_PATH.try_into()?, ContentService)
         .await?;
@@ -39,7 +56,16 @@ async fn setup(connection: tinybus::Connection) -> tinybus::Result<()> {
         .serve_at(
             tinymemes_bus::MARKER_PATH.try_into()?,
             persistent::PersistentService {
+                documents: std::sync::Arc::clone(storage.documents()),
+            },
+        )
+        .await?;
+    connection
+        .serve_at(
+            tinymemes_bus::REMIX_PATH.try_into()?,
+            remix::RemixService {
                 connection: connection.clone(),
+                drain: Default::default(),
             },
         )
         .await?;
@@ -47,32 +73,46 @@ async fn setup(connection: tinybus::Connection) -> tinybus::Result<()> {
         .serve_at(
             tinymemes_bus::CONTENT_USAGE_PATH.try_into()?,
             content_usage::ContentUsageService {
-                connection: connection.clone(),
+                documents: std::sync::Arc::clone(storage.documents()),
             },
         )
         .await?;
     connection.request_name(STATE_INTERFACE).await?;
     Ok(())
 }
-mod exports {
+macro_rules! module_declaration {
+    ($export:ident) => {
+        tinybus_module::$export! {
+            setup = setup,
+            worker_threads = 1,
+            provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
+            methods = ["Apply", "MarkRemixed", "WasRemixed", "Remix", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = ["ai.tinyhumans.tinymemes.Host"], lazy = false,
+        }
+    };
+}
+
+/// The exported entry points. The default build exports the shared C names a
+/// dynamic loader resolves; `static-link` (and unit tests) export Rust entry
+/// points instead, so a host can link the module and admit it in-process.
+#[allow(missing_docs, unreachable_pub)]
+pub mod exports {
     use super::setup;
+
     #[cfg(not(test))]
-    tinybus_module::module_export! {
-        setup = setup,
-        worker_threads = 1,
-        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
-        methods = ["Apply", "MarkRemixed", "WasRemixed", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = [], lazy = false,
-    }
+    module_declaration!(module_export_optional_static);
 
     #[cfg(test)]
-    tinybus_module::module_export_static! {
-        setup = setup,
-        worker_threads = 1,
-        provides = ["ai.tinyhumans.tinymemes.ContentState", "ai.tinyhumans.tinymemes.RemixMarkers1", "ai.tinyhumans.tinymemes.ContentUsage1"],
-        methods = ["Apply", "MarkRemixed", "WasRemixed", "RecordSlangUsage", "RecordMemeUsage", "RemoveMeme"], signals = [], requires = [], optional = [], lazy = false,
-    }
+    module_declaration!(module_export_static);
 }
+
+/// Entry points and parsed manifest for a host that links this module.
+#[cfg(any(test, feature = "static-link"))]
+pub use exports::linked_module;
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;

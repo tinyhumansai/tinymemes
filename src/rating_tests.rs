@@ -49,3 +49,12 @@ fn middling_chat_is_spicy() {
     let r = RatingPolicy::default().rate(&reading(0.6, 0.5, 0.1, Intent::Curiosity));
     assert_eq!(r.tier, Tier::Spicy);
 }
+
+#[test]
+fn the_meme_cooldown_follows_its_env_override() {
+    let var = "TINYMEMES_TEST_COOLDOWN_UNSET";
+    assert_eq!(
+        RatingPolicy::with_cooldown_from_env(var).meme_cooldown_turns,
+        RatingPolicy::default().meme_cooldown_turns
+    );
+}

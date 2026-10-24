@@ -1,12 +1,16 @@
 use super::*;
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryBus};
-use tinymemes_bus::{ApplyRequest, ContentError, ContentOperation, ContentState, StateClient};
+use tinymemes_bus::{ApplyRequest, ContentError, ContentOperation, ContentState};
+use tinymemes_client::StateClient;
 
 #[tokio::test]
 async fn compiled_abi_returns_typed_content_and_conflicts_without_retaining_caller_state() {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     broker.clone().spawn(bus.clone());
+    let _storage = crate::test_support::serve_storage(&bus, "tenant:compiled-module-test")
+        .await
+        .unwrap();
     let host = ModuleHost::new(broker);
     let manifest = exports::linked_module().unwrap();
     host.attach_linked_with_config(manifest, serde_json::Value::Null)

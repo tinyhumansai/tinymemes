@@ -1,0 +1,346 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump to release
+        type: choice
+        required: true
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish crate
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: Production
+    outputs:
+      crate_name: ${{ steps.version.outputs.crate_name }}
+      next_version: ${{ steps.version.outputs.next_version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-features
+
+      - name: Compute next version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          metadata="$(cargo metadata --format-version 1 --no-deps)"
+          crate_name="tinymemes"
+          current_version="$(jq -r '.packages[] | select(.name == "tinymemes") | .version' <<< "$metadata")"
+          if [[ -z "$current_version" || "$current_version" == "null" ]]; then
+            echo "Could not resolve the current crate version" >&2
+            exit 1
+          fi
+
+          IFS=. read -r major minor patch <<< "$current_version"
+          case "${{ inputs.bump }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+            *)
+              echo "Unsupported bump: ${{ inputs.bump }}" >&2
+              exit 1
+              ;;
+          esac
+
+          next_version="${major}.${minor}.${patch}"
+          tag="v${next_version}"
+
+          git fetch --tags origin
+          if git rev-parse --verify --quiet "refs/tags/${tag}"; then
+            echo "Tag ${tag} already exists" >&2
+            exit 1
+          fi
+
+          {
+            echo "crate_name=${crate_name}"
+            echo "current_version=${current_version}"
+            echo "next_version=${next_version}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update crate version
+        env:
+          CRATE_NAME: ${{ steps.version.outputs.crate_name }}
+          NEXT_VERSION: ${{ steps.version.outputs.next_version }}
+        run: |
+          set -euo pipefail
+          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' Cargo.toml
+          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' crates/tinymemes-module/Cargo.toml
+          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' crates/tinymemes-bus/Cargo.toml
+          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' crates/tinymemes-client/Cargo.toml
+          cargo update --workspace --offline
+          # The proof workspace depends on the bumped crates by path; keep its
+          # lock in step so `--locked` runs after the release still resolve.
+          cargo update --manifest-path proof-workspaces/remix-markers/Cargo.toml \
+            -p tinymemes-bus -p tinymemes-client || true
+
+      - name: Commit version bump and tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock crates/tinymemes-module/Cargo.toml \
+            crates/tinymemes-bus/Cargo.toml crates/tinymemes-client/Cargo.toml \
+            proof-workspaces/remix-markers/Cargo.lock
+          git commit -m "Release ${RELEASE_TAG}"
+          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
+
+      - name: Push release commit and tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "${RELEASE_TAG}"
+
+  native-bundles:
+    name: Module bundle (${{ matrix.id }})
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: ubuntu-22.04-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - id: ubuntu-22.04-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - id: ubuntu-24.04-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - id: ubuntu-24.04-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - id: macos-15-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - id: macos-15-arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+          - id: macos-26-x86_64
+            os: macos-26-intel
+            target: x86_64-apple-darwin
+          - id: macos-26-arm64
+            os: macos-26
+            target: aarch64-apple-darwin
+          - id: windows-2022-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - id: windows-2025-x86_64
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - id: windows-11-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.publish.outputs.tag }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify native Rust target
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          actual_target="$(rustc -vV | sed -n 's/^host: //p')"
+          [[ "$actual_target" == "$EXPECTED_TARGET" ]]
+
+      - name: Build installable module
+        run: cargo build --locked --release --package tinymemes-module
+
+      - name: Assemble Unix module package
+        if: ${{ runner.os != 'Windows' }}
+        id: unix_package
+        shell: bash
+        env:
+          BUNDLE_ID: ${{ matrix.id }}
+          VERSION: ${{ needs.publish.outputs.next_version }}
+        run: |
+          set -euo pipefail
+
+          library_name="tinymemes_module"
+          case "$RUNNER_OS" in
+            Linux) module="target/release/lib${library_name}.so" ;;
+            macOS) module="target/release/lib${library_name}.dylib" ;;
+            *) echo "unsupported Unix runner: ${RUNNER_OS}" >&2; exit 1 ;;
+          esac
+          package_name="tinymemes-module-${VERSION}-${BUNDLE_ID}"
+          package_root="dist/${package_name}"
+          mkdir -p "$package_root"
+          install -m 755 "$module" "$package_root/"
+          install -m 644 LICENSE README.md "$package_root/"
+          module_name="$(basename "$module")"
+          module_hash="$(sha256sum "$package_root/$module_name" | awk '{print $1}')"
+          printf '"%s" = "%s"\n' "$module_name" "$module_hash" \
+            > "$package_root/modules.toml"
+          tar -C "$package_root" -czf "dist/${package_name}.tar.gz" .
+          echo "archive=dist/${package_name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble Windows module package
+        if: ${{ runner.os == 'Windows' }}
+        id: windows_package
+        shell: pwsh
+        env:
+          BUNDLE_ID: ${{ matrix.id }}
+          VERSION: ${{ needs.publish.outputs.next_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $libraryName = 'tinymemes_module'
+          $module = "target/release/$libraryName.dll"
+          $packageName = "tinymemes-module-$env:VERSION-$env:BUNDLE_ID"
+          $packageRoot = "dist/$packageName"
+          New-Item -ItemType Directory -Force $packageRoot | Out-Null
+          Copy-Item -LiteralPath $module, 'LICENSE', 'README.md' -Destination $packageRoot
+          $hash = (Get-FileHash -LiteralPath $module -Algorithm SHA256).Hash.ToLowerInvariant()
+          $moduleName = Split-Path -Leaf $module
+          "`"$moduleName`" = `"$hash`"`n" |
+            Set-Content -Path "$packageRoot/modules.toml" -Encoding utf8NoBOM
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/$packageName.zip"
+          "archive=dist/$packageName.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Unix module package
+        if: ${{ runner.os != 'Windows' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tinymemes-module-${{ matrix.id }}
+          path: ${{ steps.unix_package.outputs.archive }}
+          if-no-files-found: error
+
+      - name: Upload Windows module package
+        if: ${{ runner.os == 'Windows' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tinymemes-module-${{ matrix.id }}
+          path: ${{ steps.windows_package.outputs.archive }}
+          if-no-files-found: error
+
+  github-release:
+    name: Create GitHub release
+    needs:
+      - publish
+      - native-bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.publish.outputs.tag }}
+          persist-credentials: false
+
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: tinymemes-module-*
+          path: release-assets
+          merge-multiple: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check out the TinyBus tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/tinyhumansai/tinybus vendor-tinybus
+          git -C vendor-tinybus checkout 5256d08c41df5852ac1ccfcb58d4b24282b53cd7
+
+      - name: Create release checksum manifest with TinyBus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(
+            find release-assets -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' \) \
+              | sort
+          )
+          if [[ ${#assets[@]} -ne 11 ]]; then
+            printf 'expected 11 module archives, found %s:\n' "${#assets[@]}" >&2
+            find release-assets -type f -print >&2 || true
+            exit 1
+          fi
+          checksum_args=()
+          for asset in "${assets[@]}"; do checksum_args+=(--path "$asset"); done
+          cargo run --manifest-path vendor-tinybus/Cargo.toml --locked \
+            --package tinybus --all-features --bin tinybus -- \
+            modules checksum "${checksum_args[@]}" --output release-assets/checksum.toml
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mapfile -t release_files < <(
+            find release-assets -type f | sort
+          )
+          gh release create "$RELEASE_TAG" "${release_files[@]}" \
+            --repo "$REPOSITORY" \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --generate-notes
+
+      - name: Verify the published module through TinyBus
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.publish.outputs.next_version }}
+        run: |
+          set -euo pipefail
+          archive="tinymemes-module-${VERSION}-ubuntu-24.04-x86_64.tar.gz"
+          release_url="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
+          sha256="$(sed -n "s/^\"${archive}\" = \"\([0-9a-f]\{64\}\)\"$/\1/p" release-assets/checksum.toml)"
+          test -n "$sha256"
+          cargo run --manifest-path vendor-tinybus/Cargo.toml --locked \
+            --package tinybus --all-features --example github_module_host -- \
+            "$release_url" "$archive" "$sha256"

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub const CONTENT_USAGE_INTERFACE: &str = "ai.tinyhumans.tinymemes.ContentUsage1";
 /// Persistent catalog object path.
 pub const CONTENT_USAGE_PATH: &str = "/ai/tinyhumans/tinymemes/ContentUsage";
-/// Private catalog document key, separate from remix markers.
+/// Catalog document key. The catalog lives in its own collection,
+/// [`crate::storage::CONTENT_COLLECTION`], apart from the remix markers.
 pub const CONTENT_DOCUMENT_KEY: &str = "content-state";
 
 /// Usage text and its business region, not an authority selector.
@@ -47,7 +48,7 @@ pub struct ContentMutationReply {
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum ContentUsageFailure {
     /// Native storage refused the operation.
-    Storage(tinystoragedrivers_bus::StorageKind),
+    Storage(crate::MarkerStorageKind),
     /// Persisted catalog is malformed or uses an unsupported format.
     CorruptState,
     /// The existing owning reducer refused the operation.
@@ -59,52 +60,6 @@ pub enum ContentUsageFailure {
 }
 /// Business outcome, separate from transport admission.
 pub type ContentUsageOutcome = Result<ContentMutationReply, ContentUsageFailure>;
-
-/// A client carrying only an already-authorized callback proxy.
-#[cfg(feature = "host-callback")]
-#[derive(Clone, Debug)]
-pub struct ContentUsageClient(tinybus::module::HostCallbackProxy);
-#[cfg(feature = "host-callback")]
-impl ContentUsageClient {
-    /// Bind the exact persistent catalog interface.
-    pub fn new(proxy: tinybus::module::HostCallbackProxy) -> tinybus::Result<Self> {
-        if proxy.interface().as_str() != CONTENT_USAGE_INTERFACE {
-            return Err(tinybus::Error::failed("catalog interface mismatch"));
-        }
-        Ok(Self(proxy))
-    }
-    /// Count matching stored slang entries using fresh native state.
-    ///
-    /// An unavailable acknowledgment can follow a committed increment; this
-    /// operation has no idempotency token and a caller retry can count again.
-    pub async fn record_slang_usage(
-        &self,
-        request: SlangUsageRequest,
-    ) -> tinybus::Result<ContentUsageOutcome> {
-        self.0
-            .call_confidential("RecordSlangUsage", (request,))
-            .await
-    }
-    /// Count the first stored exact media match using fresh native state.
-    ///
-    /// An unavailable acknowledgment can follow a committed increment; this
-    /// operation has no idempotency token and must not be retried as a no-op.
-    pub async fn record_meme_usage(
-        &self,
-        request: MemeUsageRequest,
-    ) -> tinybus::Result<ContentUsageOutcome> {
-        self.0
-            .call_confidential("RecordMemeUsage", (request,))
-            .await
-    }
-    /// Remove all stored entries with the exact region and title.
-    pub async fn remove_meme(
-        &self,
-        request: RemoveMemeRequest,
-    ) -> tinybus::Result<ContentUsageOutcome> {
-        self.0.call_confidential("RemoveMeme", (request,)).await
-    }
-}
 
 #[cfg(test)]
 #[path = "content_usage_tests.rs"]

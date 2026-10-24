@@ -1,0 +1,32 @@
+[package]
+name = "tinymemes-client"
+version = "0.4.1"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "Typed TinyBus clients for the TinyMemes module, without linking its implementation."
+repository = "https://github.com/tinyhumansai/tinymemes"
+
+[features]
+default = []
+host-callback = ["tinybus/modules"]
+
+[dependencies]
+tinymemes-bus = { path = "../tinymemes-bus" }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de", default-features = false, features = ["modules"] }
+tinystoragedrivers-api = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-busproxy = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-testkit = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+
+[lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

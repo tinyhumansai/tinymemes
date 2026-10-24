@@ -297,7 +297,7 @@ See [the scope and implementation note](docs/state-module-foundation.md).
 
 ```sh
 cargo build -p tinymemes-module
-cargo run -p tinymemes-bus --example compiled_state -- target/debug/libtinymemes_module.so
+cargo run -p tinymemes-client --example compiled_state -- target/debug/libtinymemes_module.so
 ```
 
 The example imports only the contract and TinyBus, loads the actual cdylib and

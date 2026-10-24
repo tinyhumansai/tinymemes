@@ -30,3 +30,13 @@ fn marker_request_contains_only_business_identifier() {
         serde_json::json!({"reply_id":"reply"})
     );
 }
+
+#[test]
+fn scope_generation_rejection_keeps_its_wire_name() {
+    let wire = serde_json::to_value(MarkerStorageKind::ScopeGenerationRejected).unwrap();
+    assert_eq!(wire, serde_json::json!("scope_generation_rejected"));
+    assert_eq!(
+        serde_json::from_value::<MarkerStorageKind>(wire).unwrap(),
+        MarkerStorageKind::ScopeGenerationRejected
+    );
+}

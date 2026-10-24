@@ -37,6 +37,7 @@
 //! # }
 //! ```
 
+mod ab;
 pub mod agent;
 pub mod conversation;
 pub mod env;
@@ -52,12 +53,14 @@ pub mod region;
 pub mod research;
 pub mod slang;
 pub mod source;
+pub mod store;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
 
+pub use ab::{bucket, should_remix};
 pub use agent::{Remix, RemixMode, SlangAgent};
 pub use conversation::{Role, SentMeme, Turn, Window, memes_as_text};
 pub use env::{EnvConfig, JevMode};
@@ -72,6 +75,7 @@ pub use region::{CatalogMeme, Region, SlangTerm};
 pub use research::{SearchHit, SearchResearcher, WebSearch};
 pub use slang::{IndexPolicy, LearnReport, SlangIndex, SlangResearcher};
 pub use source::{Meme, MemeSource};
+pub use store::IndexStore;
 /// The Jev client crate, re-exported so hosts build clients with the exact
 /// version tinymemes speaks.
 pub use tinyinference_decisions as decisions;

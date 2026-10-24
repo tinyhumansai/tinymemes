@@ -34,7 +34,7 @@ fn catalog_arguments_cannot_supply_native_selectors_or_snapshots() {
 #[test]
 fn catalog_storage_categories_have_no_private_backend_prose() {
     let encoded = serde_json::to_value(ContentUsageFailure::Storage(
-        tinystoragedrivers_bus::StorageKind::Fenced,
+        crate::MarkerStorageKind::Fenced,
     ))
     .unwrap();
     assert_eq!(

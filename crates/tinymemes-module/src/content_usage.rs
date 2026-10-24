@@ -1,10 +1,16 @@
 //! Catalog mutations over this request's authenticated private document port.
+use std::sync::Arc;
+
+use tinymemes_bus::storage::CONTENT_COLLECTION;
 use tinymemes_bus::{
     CONTENT_DOCUMENT_KEY, CONTENT_USAGE_INTERFACE, ContentMutationReply, ContentOperation,
-    ContentState, ContentUsageFailure, MARKER_DOCUMENT_PATH, MemeSnapshot, MemeUsageRequest,
-    RemoveMemeRequest, SlangSnapshot, SlangUsageRequest,
+    ContentState, ContentUsageFailure, MemeSnapshot, MemeUsageRequest, RemoveMemeRequest,
+    SlangSnapshot, SlangUsageRequest,
 };
-use tinystoragedrivers_bus::{DocumentClient, GetRequest, Precondition, PutRequest, StorageKind};
+use tinystoragedrivers_api::DocumentStore;
+use tinystoragedrivers_types::{ErrorKind, Precondition};
+
+use crate::persistent::marker_kind;
 
 const MAX_ATTEMPTS: usize = 8;
 
@@ -57,7 +63,7 @@ impl Catalog {
 }
 
 pub(crate) struct ContentUsageService {
-    pub(crate) connection: tinybus::Connection,
+    pub(crate) documents: Arc<dyn DocumentStore>,
 }
 /// Encode a content-free business refusal without backend source prose.
 fn failure(error: ContentUsageFailure) -> tinybus::Result<serde_json::Value> {
@@ -122,28 +128,23 @@ impl tinybus::Interface for ContentUsageService {
         args: serde_json::Value,
         context: &tinybus::CallContext,
     ) -> tinybus::Result<serde_json::Value> {
-        // Keep this call's authenticated sender across every await and retry.
-        // No module configuration, first caller cache, or argument selects it.
-        let caller = context
+        // The host already bound this module's storage handle. Still require
+        // the authenticated confidential caller before touching it.
+        context
             .authenticated_sender()
             .filter(|_| context.is_confidential())
-            .ok_or_else(|| tinybus::Error::failed("authenticated confidential caller required"))?
-            .clone();
+            .ok_or_else(|| tinybus::Error::failed("authenticated confidential caller required"))?;
         let operation = operation(member, args)?;
-        let documents = DocumentClient::new(self.connection.proxy(
-            caller.as_str(),
-            MARKER_DOCUMENT_PATH,
-            tinystoragedrivers_bus::INTERFACE,
-        )?)?;
         for _ in 0..MAX_ATTEMPTS {
-            let document = match documents
-                .get(GetRequest {
-                    id: CONTENT_DOCUMENT_KEY.into(),
-                })
-                .await?
+            let document = match self
+                .documents
+                .get(CONTENT_COLLECTION, CONTENT_DOCUMENT_KEY)
+                .await
             {
                 Ok(document) => document,
-                Err(error) => return failure(ContentUsageFailure::Storage(error.kind)),
+                Err(error) => {
+                    return failure(ContentUsageFailure::Storage(marker_kind(error.kind())));
+                }
             };
             let (catalog, condition) = match document {
                 Some(document) => {
@@ -192,23 +193,22 @@ impl tinybus::Interface for ContentUsageService {
                 slang: next.slang,
                 memes: next.memes,
             })?;
-            match documents
-                .put(PutRequest {
-                    id: CONTENT_DOCUMENT_KEY.into(),
-                    doc,
-                    precondition: condition,
-                })
-                .await?
+            match self
+                .documents
+                .put(CONTENT_COLLECTION, CONTENT_DOCUMENT_KEY, doc, condition)
+                .await
             {
                 Ok(_) => {
                     return Ok(serde_json::to_value(Result::<_, ContentUsageFailure>::Ok(
                         reply,
                     ))?);
                 }
-                Err(error) if error.kind == StorageKind::Conflict => continue,
+                Err(error) if error.kind() == ErrorKind::Conflict => continue,
                 // Native/outer acknowledgments may be lost after commit. Only
                 // explicit conditional conflicts authorize a fresh-read retry.
-                Err(error) => return failure(ContentUsageFailure::Storage(error.kind)),
+                Err(error) => {
+                    return failure(ContentUsageFailure::Storage(marker_kind(error.kind())));
+                }
             }
         }
         failure(ContentUsageFailure::ConflictExhausted)

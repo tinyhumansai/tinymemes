@@ -26,12 +26,41 @@ pub struct MarkRemixedReply {
     /// Owning content revision, distinct from the native document version.
     pub business_revision: u64,
 }
+/// Content-free class of a storage refusal. Mirrors the storage contract's
+/// kinds by name so this crate links no storage crate; the module maps them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkerStorageKind {
+    /// Required resource absent.
+    NotFound,
+    /// Atomic condition failed.
+    Conflict,
+    /// Unique resource exists.
+    AlreadyExists,
+    /// Native operation unsupported.
+    Unsupported,
+    /// Native input rejected.
+    InvalidInput,
+    /// Serialization failed.
+    Serialization,
+    /// Cryptography failed.
+    Crypto,
+    /// Service unavailable.
+    Unavailable,
+    /// Driver failed.
+    Backend,
+    /// Native lease guard no longer holds.
+    Fenced,
+    /// Scope generation retired or unissued, or scope reset pending.
+    ScopeGenerationRejected,
+}
+
 /// Content-free failures. Native source chains never cross the ABI.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum MarkerFailure {
     /// Native storage refused the operation.
-    Storage(tinystoragedrivers_bus::StorageKind),
+    Storage(MarkerStorageKind),
     /// Persisted state cannot be decoded or validated.
     CorruptState,
     /// Owning content operation refused.
@@ -43,35 +72,6 @@ pub enum MarkerFailure {
 }
 /// Persistent operation outcome, separate from transport admission.
 pub type MarkerOutcome<T> = Result<T, MarkerFailure>;
-
-/// A client constructed only from the host-selected callback capability.
-#[cfg(feature = "host-callback")]
-#[derive(Clone, Debug)]
-pub struct RemixMarkerClient(tinybus::module::HostCallbackProxy);
-#[cfg(feature = "host-callback")]
-impl RemixMarkerClient {
-    /// Bind an already-authorized, exact-interface callback proxy.
-    pub fn new(proxy: tinybus::module::HostCallbackProxy) -> tinybus::Result<Self> {
-        if proxy.interface().as_str() != MARKER_INTERFACE {
-            return Err(tinybus::Error::failed("marker interface mismatch"));
-        }
-        Ok(Self(proxy))
-    }
-    /// Record a marker using fresh native state inside the compiled module.
-    pub async fn mark_remixed(
-        &self,
-        request: MarkerRequest,
-    ) -> tinybus::Result<MarkerOutcome<MarkRemixedReply>> {
-        self.0.call_confidential("MarkRemixed", (request,)).await
-    }
-    /// Read a marker using fresh native state inside the compiled module.
-    pub async fn was_remixed(
-        &self,
-        request: MarkerRequest,
-    ) -> tinybus::Result<MarkerOutcome<bool>> {
-        self.0.call_confidential("WasRemixed", (request,)).await
-    }
-}
 
 #[cfg(test)]
 #[path = "persistent_tests.rs"]

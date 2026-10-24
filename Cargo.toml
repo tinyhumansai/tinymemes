@@ -1,14 +1,18 @@
 [workspace]
 exclude = ["proof-workspaces/remix-markers"]
-members = [".", "crates/tinymemes-bus", "crates/tinymemes-module"]
+members = [".", "crates/tinymemes-bus", "crates/tinymemes-client", "crates/tinymemes-module"]
 resolver = "2"
 
 [package]
 name = "tinymemes"
-version = "0.1.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
+# Never published to crates.io: hosts (OpenHuman, Chottu) vendor it by path.
+# Saying so lets their supply-chain checks treat its path and git dependencies
+# as first-party instead of as wildcard registry requirements.
+publish = false
 description = "Reads a chat with Jev, rates how much fun a reply can take, and remixes it with slang and memes."
 repository = "https://github.com/tinyhumansai/tinymemes"
 readme = "README.md"
@@ -16,7 +20,7 @@ keywords = ["memes", "llm", "openhuman", "jev", "chat"]
 categories = ["text-processing"]
 
 [dependencies]
-tinymemes-bus = { path = "crates/tinymemes-bus", version = "0.1.0" }
+tinymemes-bus = { path = "crates/tinymemes-bus" }
 async-trait = "0.1"
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -28,7 +32,7 @@ tracing = "0.1"
 # Jev decision model client. OpenHuman redirects this to its vendored copy via
 # `[patch."https://github.com/tinyhumansai/tinyinference"]`, so the host and
 # this module share one `tinyinference-decisions` package.
-tinyinference-decisions = { git = "https://github.com/tinyhumansai/tinyinference", rev = "abf90568a24b826d49900150b20856ef166df3f8" }
+tinyinference-decisions = { version = "0.3.0", git = "https://github.com/tinyhumansai/tinyinference", rev = "abf90568a24b826d49900150b20856ef166df3f8" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -41,3 +45,9 @@ rust_2018_idioms = { level = "warn", priority = -1 }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# TSD v2.1's bus proxy and this module both use TinyBus v0.1.6. Replace all
+# same-version git revisions with the canonical TinyBus main commit so both
+# sides share one `Connection` type.
+[replace]
+"https://github.com/tinyhumansai/tinybus#tinybus:0.1.6" = { git = "https://github.com/tinyhumansai/tinybus", rev = "11b0a728e62a5b7ae213c1cf6366f82b9e1a65de" }

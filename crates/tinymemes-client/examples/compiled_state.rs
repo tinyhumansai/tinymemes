@@ -1,6 +1,13 @@
 //! Load the separately built cdylib using only the minimal contract.
+use std::sync::Arc;
+
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryBus};
-use tinymemes_bus::{ApplyRequest, ContentError, ContentOperation, ContentState, StateClient};
+use tinymemes_bus::{ApplyRequest, ContentError, ContentOperation, ContentState};
+use tinymemes_client::StateClient;
+use tinystoragedrivers_api::StorageBackend;
+use tinystoragedrivers_busproxy::{PerCallerEndpoint, StorageServer};
+use tinystoragedrivers_testkit::MemoryBackend;
+use tinystoragedrivers_types::Scope;
 
 /// Load a real cdylib and exercise its typed content operations and refusals.
 #[tokio::main]
@@ -11,6 +18,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     broker.clone().spawn(bus.clone());
+    let scope = Scope::new("tenant:compiled-state-example")?;
+    let storage = MemoryBackend::new().for_scope(&scope)?;
+    let storage_host = Connection::connect(bus.connect().await?).await?;
+    let endpoint = PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(storage.clone())));
+    let _served_storage =
+        tinystoragedrivers_busproxy::serve(&storage_host, Arc::new(endpoint)).await?;
     let host = ModuleHost::new(broker);
     host.load_file(std::path::Path::new(&path))?;
     let caller = Connection::connect(bus.connect().await?).await?;
